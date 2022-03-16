@@ -15,21 +15,35 @@
 */
 
 #pragma once
-#include <inttypes.h>
-#include <stdint.h>
+#include <vector>
 
-/* ESPI Status Codes */
-typedef enum {
-  ESPI_CC_SUCCESS = 0,
-  ESPI_CC_INVALID_REQ,
-  ESPI_CC_INVALID_LEN,
-} EESPIStatus;
+#include <boost/asio.hpp>
+#include "linux/aspeed-espi-ioc.h"
+#include <sys/ioctl.h>
+
+namespace espi {
+
+enum class channel: uint8_t {
+    outOfBound  = 0x21
+};
 
 class espi_channel {
+public:
+    espi_channel(boost::asio::io_context &ioc_, const std::string &device_file_):
+        ioc(ioc_), device_file(device_file_) {
+    }
 protected:
-  int *io_context, fd;
-  espi_channel(int *io_context, const char *device_file);
-  EESPIStatus frame_packet(uint8_t channel_type, uint8_t *transact_buffer,
-                           uint16_t len);
-  int do_ioctl(unsigned int command, struct aspeed_espi_ioc *value);
+    boost::system::error_code frame_packet(const channel &channel_type,
+            std::vector<uint8_t> &packet) noexcept;
+
+    int32_t do_ioctl(int32_t command_code, struct aspeed_espi_ioc & ioctl_data) {
+        return 0;
+        //return ioctl(this->fd, command_code, &ioctl_data);
+    }
+private:
+    boost::asio::io_context &ioc;
+    const std::string device_file;
 };
+
+}
+

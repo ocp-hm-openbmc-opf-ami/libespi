@@ -25,7 +25,7 @@ add_project_arguments(
 )
 
 c = meson.get_compiler('cpp')
-src_files = ['src/espi_channel.cpp', 'src/espi_oob_channel.cpp']
+src_files = ['src/espi_channel.cpp']
 inc = include_directories('include')
 
 libespi = shared_library('libespi',
