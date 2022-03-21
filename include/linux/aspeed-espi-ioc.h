@@ -125,6 +125,7 @@ struct aspeed_espi_ioc {
  * We choose the longest header and the max payload size based on the Intel
  * specification to define the maximum eSPI packet length.
  */
+#define BIT(nr) ((1ul) << (nr))
 #define ASPEED_ESPI_PLD_LEN_MIN	BIT(6)
 #define ASPEED_ESPI_PLD_LEN_MAX	BIT(12)
 #define ASPEED_ESPI_PKT_LEN_MAX	(sizeof(struct espi_perif_msg) + ASPEED_ESPI_PLD_LEN_MAX)

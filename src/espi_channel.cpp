@@ -20,5 +20,27 @@
 
 namespace espi {
 
+/* Creates a new std::vector with same content as buf asio::buffer. buffer and vector are using
+ * different underlying memory.
+ */
+std::vector<uint8_t> bufferToVector(const boost::asio::mutable_buffer &buf){
+    uint8_t* bufferBegin = static_cast<uint8_t*>(buf.data());
+    uint8_t* bufferEnd = bufferBegin + buf.size();
+    return std::vector<uint8_t>(bufferBegin, bufferEnd);
+}
+std::vector<uint8_t> bufferToVector(const boost::asio::const_buffer &buf){
+    const uint8_t* bufferBegin = static_cast<const uint8_t*>(buf.data());
+    const uint8_t* bufferEnd = bufferBegin + buf.size();
+    return std::vector<uint8_t>(bufferBegin, bufferEnd);
+}
+//TODO: use template mechanism that allows template instantiation for only selected classes and
+//use that instead of two copies of bufferToVector method
+
+/* Creates asio::buffer object from std::vector. Both buffer and vector will point to same
+ * memory.
+ */
+boost::asio::mutable_buffer vectorToBuffer(std::vector<uint8_t> &vec){
+     return boost::asio::buffer(vec.data(), vec.size());
+}
 
 }
