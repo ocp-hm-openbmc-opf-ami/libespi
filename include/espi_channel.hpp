@@ -18,6 +18,7 @@
 
 #include <boost/asio.hpp>
 #include <cassert>
+#include <memory>
 #include <sys/ioctl.h>
 #include <vector>
 
@@ -80,6 +81,18 @@ public:
         EspiChannel(ioc, deviceFile), timer(ioc){
     }
     virtual ~EspioobChannel();
+
+    static std::shared_ptr<EspioobChannel> singleton;
+    static std::shared_ptr<EspioobChannel> getHandle(boost::asio::io_context &ioc){
+        if(!singleton) {
+            singleton = std::make_shared<EspioobChannel>(ioc);
+        }
+        return singleton;
+    }
+
+    static void destroyHandle(){
+        singleton = nullptr;
+    }
 
     void asyncSend(uint8_t smbus_id, uint8_t command_code, const std::vector<uint8_t> payload,
                    SendCallback cb){
