@@ -31,5 +31,6 @@ inc = include_directories('include')
 libespi = shared_library('libespi',
                         src_files,
                         include_directories : inc,
-                        install : true)
+                        install : true,
+                        version: meson.project_version())
 
