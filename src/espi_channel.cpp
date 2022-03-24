@@ -16,7 +16,7 @@
 #include <iostream>
 #include <string>
 
-#include "espi_channel.hpp"
+#include <espi_channel.hpp>
 
 namespace espi {
 
@@ -40,7 +40,11 @@ std::vector<uint8_t> bufferToVector(const boost::asio::const_buffer &buf){
  * memory.
  */
 boost::asio::mutable_buffer vectorToBuffer(std::vector<uint8_t> &vec){
-     return boost::asio::buffer(vec.data(), vec.size());
+     return boost::asio::buffer(vec);
+}
+
+void test_method(){
+    std::cout << "Hell" << std::endl;
 }
 
 }

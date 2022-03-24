@@ -30,11 +30,11 @@ enum class EspiCycle: uint8_t {
     outOfBound  = 0x21
 };
 
-const std::string espioobDeviceFile = "/dev/aspeed-espi-oob";
+const std::string oobDeviceFile = "/dev/aspeed-espi-oob";
 
 std::vector<uint8_t> bufferToVector(const boost::asio::mutable_buffer &);
 std::vector<uint8_t> bufferToVector(const boost::asio::const_buffer &);
-boost::asio::mutable_buffer vectorToBuffer(const std::vector<uint8_t> &);
+boost::asio::mutable_buffer vectorToBuffer(std::vector<uint8_t> &);
 class EspiChannel {
 protected:
     //TODO: Add code to open file or set up file for ioctl usage
@@ -60,7 +60,27 @@ protected:
     virtual uint8_t get_tag() = 0;
 
     int do_ioctl(unsigned long command_code, struct aspeed_espi_ioc *ioctl_data) {
+#define IOCTL_LOG
+#ifdef IOCTL_LOG
+        if(command_code == ASPEED_ESPI_OOB_PUT_TX){
+            std::cout << "tx packet length " << ioctl_data->pkt_len << std::endl;
+            for(std::size_t i = 0; i < ioctl_data->pkt_len; i++){
+                std::cout << "0x" << std::hex << (int)ioctl_data->pkt[i] <<  " ";
+            }
+            std::cout << std::endl;
+        }
+#endif
         return ioctl(this->fd, command_code, ioctl_data);
+#ifdef IOCTL_LOG
+        if(command_code == ASPEED_ESPI_OOB_GET_RX){
+            std::cout << "rx packet length " << ioctl_data->pkt_len << std::endl;
+            for(std::size_t i = 0; i < ioctl_data->pkt_len; i++){
+                std::cout << "0x" << std::hex << (int)ioctl_data->pkt[i] <<  " ";
+            }
+            std::cout << std::endl;
+        }
+#endif
+
     }
 
     boost::asio::io_context &ioc;
@@ -68,6 +88,8 @@ protected:
 
     static constexpr std::size_t headerLength = 0x03;
 };
+
+void test_method();
 
 //TODO: Use same write handler as async_send of asio takes. No need to define our own type
 //of callbacks when there is already one around. Figure out how to do it.
@@ -77,10 +99,10 @@ typedef std::function<void(boost::system::error_code, std::size_t)> ReceiveCallb
 //TODO: Don't allow creattion of more than one instance of this class.
 class EspioobChannel : public EspiChannel {
 public:
-    EspioobChannel(boost::asio::io_context &ioc, const std::string deviceFile = espioobDeviceFile):
+    EspioobChannel(boost::asio::io_context &ioc, const std::string deviceFile = oobDeviceFile):
         EspiChannel(ioc, deviceFile), timer(ioc){
     }
-    virtual ~EspioobChannel();
+    ~EspioobChannel(){}
 
     static std::shared_ptr<EspioobChannel> singleton;
     static std::shared_ptr<EspioobChannel> getHandle(boost::asio::io_context &ioc){
@@ -94,7 +116,7 @@ public:
         singleton = nullptr;
     }
 
-    void asyncSend(uint8_t smbus_id, uint8_t command_code, const std::vector<uint8_t> payload,
+    void asyncSend(uint8_t smbus_id, uint8_t command_code, std::vector<uint8_t> payload,
                    SendCallback cb){
         //Reserve space for common espi header
         std::vector<uint8_t> txPacket = {0, 0, 0};
@@ -110,10 +132,9 @@ public:
             txPacket.push_back(*it);
         }
         this->frame_header(EspiCycle::outOfBound, txPacket);
-        boost::asio::post(this->ioc, [=](){
-                auto buffer = vectorToBuffer(txPacket);
-                this->doSend(buffer, cb);
-        });
+        auto buffer = vectorToBuffer(txPacket);
+        //TODO: This is not good. User should not be called back on same stack
+        this->doSend(buffer, cb);
     }
 
     template <std::size_t length>
@@ -127,9 +148,9 @@ public:
     }
 
     template <std::size_t length>
-    void asyncTransact(uint8_t smbus_id, uint8_t command_code, const std::vector<uint8_t> payload,
+    void asyncTransact(uint8_t smbus_id, uint8_t command_code, std::vector<uint8_t> payload,
                        std::array<uint8_t, length> &receiveArray, ReceiveCallback cb){
-        this->asyncSend(smbus_id, command_code, payload, [&](){
+        this->asyncSend(smbus_id, command_code, payload, [&](boost::system::error_code){
             this->asyncReceive(receiveArray, cb);
         });
     }
@@ -157,9 +178,10 @@ private:
     void doSend(boost::asio::mutable_buffer &buffer, SendCallback cb){
         int rc = oobSend(buffer);
         if(rc == 0){
-            cb(boost::system::error_code());
+            boost::asio::post(this->ioc, [=](){ cb(boost::system::error_code());});
         } else {
-            cb(boost::system::error_code());
+            //TODO: send proper error code
+            boost::asio::post(this->ioc, [=](){ cb(boost::system::error_code());});
         }
     }
 
