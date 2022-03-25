@@ -61,6 +61,7 @@ protected:
 
     int do_ioctl(unsigned long command_code, struct aspeed_espi_ioc *ioctl_data) {
 #define IOCTL_LOG
+        std::cout << "[vks][" << __func__ << "][" << __LINE__ << "]" << std::endl;
 #ifdef IOCTL_LOG
         if(command_code == ASPEED_ESPI_OOB_PUT_TX){
             std::cout << "tx packet length " << ioctl_data->pkt_len << std::endl;
@@ -70,17 +71,8 @@ protected:
             std::cout << std::endl;
         }
 #endif
-        return ioctl(this->fd, command_code, ioctl_data);
-#ifdef IOCTL_LOG
-        if(command_code == ASPEED_ESPI_OOB_GET_RX){
-            std::cout << "rx packet length " << ioctl_data->pkt_len << std::endl;
-            for(std::size_t i = 0; i < ioctl_data->pkt_len; i++){
-                std::cout << "0x" << std::hex << (int)ioctl_data->pkt[i] <<  " ";
-            }
-            std::cout << std::endl;
-        }
-#endif
-
+        int rc = ioctl(this->fd, command_code, ioctl_data);
+        return rc;
     }
 
     boost::asio::io_context &ioc;
@@ -150,7 +142,8 @@ public:
     template <std::size_t length>
     void asyncTransact(uint8_t smbus_id, uint8_t command_code, std::vector<uint8_t> payload,
                        std::array<uint8_t, length> &receiveArray, ReceiveCallback cb){
-        this->asyncSend(smbus_id, command_code, payload, [&](boost::system::error_code){
+        this->asyncSend(smbus_id, command_code, payload, [&](boost::system::error_code ec){
+            std::cout << "Send error code " << ec << std::endl;
             this->asyncReceive(receiveArray, cb);
         });
     }
@@ -204,11 +197,13 @@ private:
                     this->doReceive(receiveBuffer, cb, retryNum + 1);
             });
         } else if(rc == 0) {
-            boost::asio::post(this->ioc, [cb](){cb(boost::system::error_code(), 10);});
+            struct espi_oob_msg *oob_pkt = (struct espi_oob_msg*)espiIoc.pkt;
+            std::size_t readSize = (size_t)ESPI_LEN(oob_pkt->len_h, oob_pkt->len_l);
+            boost::asio::post(this->ioc, [readSize,cb](){cb(boost::system::error_code(), readSize);});
         } else if(rc != 0) {
             //TODO: call the caller wtih an error code that is equivalent to ioctl return
             boost::asio::post(this->ioc, [cb](){cb(boost::system::error_code(), 10);});
-        } 
+        }
     }
 
     virtual uint8_t get_tag(){
