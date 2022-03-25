@@ -46,7 +46,7 @@ protected:
         }
     }
 
-    virtual ~EspiChannel() = default;
+    virtual ~EspiChannel() {close(fd);}
     boost::system::error_code frame_header(const EspiCycle &cycle_type,
             std::vector<uint8_t> &packet) noexcept {
         assert(packet.size() >= headerLength);
@@ -60,19 +60,7 @@ protected:
     virtual uint8_t get_tag() = 0;
 
     int do_ioctl(unsigned long command_code, struct aspeed_espi_ioc *ioctl_data) {
-#define IOCTL_LOG
-        std::cout << "[vks][" << __func__ << "][" << __LINE__ << "]" << std::endl;
-#ifdef IOCTL_LOG
-        if(command_code == ASPEED_ESPI_OOB_PUT_TX){
-            std::cout << "tx packet length " << ioctl_data->pkt_len << std::endl;
-            for(std::size_t i = 0; i < ioctl_data->pkt_len; i++){
-                std::cout << "0x" << std::hex << (int)ioctl_data->pkt[i] <<  " ";
-            }
-            std::cout << std::endl;
-        }
-#endif
-        int rc = ioctl(this->fd, command_code, ioctl_data);
-        return rc;
+        return ioctl(this->fd, command_code, ioctl_data);
     }
 
     boost::asio::io_context &ioc;
@@ -82,11 +70,6 @@ protected:
 };
 
 void test_method();
-
-//TODO: Use same write handler as async_send of asio takes. No need to define our own type
-//of callbacks when there is already one around. Figure out how to do it.
-typedef std::function<void(boost::system::error_code)> SendCallback;
-typedef std::function<void(boost::system::error_code, std::size_t)> ReceiveCallback;
 
 //TODO: Don't allow creattion of more than one instance of this class.
 class EspioobChannel : public EspiChannel {
@@ -108,8 +91,9 @@ public:
         singleton = nullptr;
     }
 
+    template <typename WriteHandler>
     void asyncSend(uint8_t smbus_id, uint8_t command_code, std::vector<uint8_t> payload,
-                   SendCallback cb){
+                   WriteHandler cb){
         //Reserve space for common espi header
         std::vector<uint8_t> txPacket = {0, 0, 0};
 
@@ -129,19 +113,20 @@ public:
         this->doSend(buffer, cb);
     }
 
-    template <std::size_t length>
-    void asyncReceive(std::array<uint8_t, length> &receiveArray, ReceiveCallback cb) {
+    template <std::size_t length, typename ReadHandler>
+    void asyncReceive(std::array<uint8_t, length> &receiveArray, ReadHandler cb) {
         boost::asio::mutable_buffer receiveBuffer = boost::asio::buffer(receiveArray);
         this->asyncReceive(receiveBuffer, cb);
     }
 
-    void asyncReceive(boost::asio::mutable_buffer &receiveBuffer, ReceiveCallback cb) {
+    template <typename ReadHandler>
+    void asyncReceive(boost::asio::mutable_buffer &receiveBuffer, ReadHandler cb) {
         this->doReceive(receiveBuffer, cb);
     }
 
-    template <std::size_t length>
+    template <std::size_t length, typename ReadHandler>
     void asyncTransact(uint8_t smbus_id, uint8_t command_code, std::vector<uint8_t> payload,
-                       std::array<uint8_t, length> &receiveArray, ReceiveCallback cb){
+                       std::array<uint8_t, length> &receiveArray, ReadHandler cb){
         this->asyncSend(smbus_id, command_code, payload, [&](boost::system::error_code ec){
             std::cout << "Send error code " << ec << std::endl;
             this->asyncReceive(receiveArray, cb);
@@ -168,7 +153,8 @@ private:
     }
 
     //TODO: mutable_buffer is not needed here use const_buffer instead
-    void doSend(boost::asio::mutable_buffer &buffer, SendCallback cb){
+    template <typename WriteHandler>
+    void doSend(boost::asio::mutable_buffer &buffer, WriteHandler cb){
         int rc = oobSend(buffer);
         if(rc == 0){
             boost::asio::post(this->ioc, [=](){ cb(boost::system::error_code());});
@@ -178,7 +164,8 @@ private:
         }
     }
 
-    void doReceive(boost::asio::mutable_buffer &receiveBuffer, ReceiveCallback cb,
+    template <typename ReadHandler>
+    void doReceive(boost::asio::mutable_buffer &receiveBuffer, ReadHandler cb,
                    uint8_t retryNum = 0){
         struct aspeed_espi_ioc espiIoc;
         espiIoc.pkt = (uint8_t*)receiveBuffer.data();
