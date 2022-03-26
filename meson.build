@@ -4,23 +4,10 @@ project(
     license: 'Apache-2.0',
     version: '0.1',
     meson_version: '>=0.57.0',
-    default_options: [
-        'warning_level=2',
-        'werror=true',
-]
+    default_options: []
 )
 
 add_project_arguments(
-        '-Wcast-align',
-        '-Wconversion',
-        '-Wsign-conversion',
-        '-Wnull-dereference',
-        '-Wdouble-promotion',
-        '-Wformat=2',
-        '-Wno-unused-parameter',
-        '-Wduplicated-cond',
-        '-Wduplicated-branches',
-        '-Wlogical-op',
         language: 'cpp',
 )
 
@@ -46,3 +33,10 @@ espi_cmd_bin = executable('espi_cmd',
                           link_with: [libespi],
                           dependencies: [dep_pthread]
                           )
+
+tick_cmd_bin = executable('tick',
+                          sources: ['src/tick.cpp'],
+                          install : true,
+                          include_directories : inc,
+                          )
+
