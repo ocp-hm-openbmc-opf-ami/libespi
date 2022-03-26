@@ -32,8 +32,7 @@ enum class EspiCycle: uint8_t {
 
 const std::string oobDeviceFile = "/dev/aspeed-espi-oob";
 
-std::vector<uint8_t> bufferToVector(const boost::asio::mutable_buffer &);
-std::vector<uint8_t> bufferToVector(const boost::asio::const_buffer &);
+
 boost::asio::mutable_buffer vectorToBuffer(std::vector<uint8_t> &);
 class EspiChannel {
 protected:
@@ -94,10 +93,14 @@ public:
     template <typename WriteHandler>
     void asyncSend(uint8_t smbus_id, uint8_t command_code, std::vector<uint8_t> payload,
                    WriteHandler cb){
-        //Reserve space for common espi header
-        std::vector<uint8_t> txPacket = {0, 0, 0};
-
-        //setup byte 3 to 5
+        std::vector<uint8_t> txPacket;
+        //espi header related stuff,
+        //TODO: better move and correct this logic in parent's frame buffer. All channels
+        //except virtual wire need it.
+        txPacket.push_back((uint8_t)EspiCycle::outOfBound);
+        txPacket.push_back(((0xF0 & this->get_tag()) | ESPI_LEN_HIGH(3 + payload.size())));
+        txPacket.push_back(ESPI_LEN_LOW(3 + payload.size()));
+        //setup byte 3 to 5, espi oob specific
         txPacket.push_back(smbus_id << 1);
         txPacket.push_back(command_code);
         txPacket.push_back(static_cast<uint8_t>(payload.size()));
@@ -107,10 +110,7 @@ public:
         for(auto it = payload.cbegin(); it != payload.cend(); it++){
             txPacket.push_back(*it);
         }
-        this->frame_header(EspiCycle::outOfBound, txPacket);
-        auto buffer = vectorToBuffer(txPacket);
-        //TODO: This is not good. User should not be called back on same stack
-        this->doSend(buffer, cb);
+        this->doSend(txPacket, cb);
     }
 
     template <std::size_t length, typename ReadHandler>
@@ -135,30 +135,25 @@ public:
 
 
 private:
-    int oobSend(boost::asio::mutable_buffer &buffer){
-        struct aspeed_espi_ioc espiIoc;
-        struct espi_oob_msg *oobPkt = 
-            (struct espi_oob_msg*)(new uint8_t[ASPEED_ESPI_PKT_LEN_MAX]);
-        uint8_t* rawBuffer = (uint8_t*)(buffer.data());
-        oobPkt->cyc = rawBuffer[0];
-        oobPkt->tag = 0x00;
-        oobPkt->len_h =  ESPI_LEN_HIGH(buffer.size() - 3);
-        oobPkt->len_l =  ESPI_LEN_LOW(buffer.size() - 3);
-        memcpy(&oobPkt->data[0], rawBuffer + 3, buffer.size() - 3);
-        espiIoc.pkt = (uint8_t*)oobPkt;
-        espiIoc.pkt_len = buffer.size();
-        int rc = this->do_ioctl(ASPEED_ESPI_OOB_PUT_TX, &espiIoc);
-        delete [] ((uint8_t*)(oobPkt));
-        return rc;
-    }
-
-    //TODO: mutable_buffer is not needed here use const_buffer instead
     template <typename WriteHandler>
-    void doSend(boost::asio::mutable_buffer &buffer, WriteHandler cb){
-        int rc = oobSend(buffer);
+    void doSend(std::vector<uint8_t> &txPacket, WriteHandler cb){
+        struct aspeed_espi_ioc espiIoc;
+        struct espi_oob_msg *oobPkt = (struct espi_oob_msg*)(txPacket.data());
+        espiIoc.pkt = (uint8_t*)oobPkt;
+        espiIoc.pkt_len = txPacket.size();
+        std::cout << "cycle :" << std::hex << (int)oobPkt->cyc << std::endl;
+        std::cout << "len_h :" << std::hex << (int)oobPkt->len_h << std::endl;
+        std::cout << "tag   :" << std::hex << (int)oobPkt->tag << std::endl;
+        std::cout << "len_l :" << std::hex << (int)oobPkt->len_l << std::endl;
+
+        for(std::size_t i = 0; i < txPacket.size(); i++){
+            std::cout << "0x" << std::hex << (int)txPacket[i] << " ";
+        }
+        int rc = this->do_ioctl(ASPEED_ESPI_OOB_PUT_TX, &espiIoc);
         if(rc == 0){
             boost::asio::post(this->ioc, [=](){ cb(boost::system::error_code());});
         } else {
+            std::cout << "[vks][" << __func__ << "][" << __LINE__ << "]" << std::endl;
             //TODO: send proper error code
             boost::asio::post(this->ioc, [=](){ cb(boost::system::error_code());});
         }
@@ -173,10 +168,11 @@ private:
         int rc = this->do_ioctl(ASPEED_ESPI_OOB_GET_RX, &espiIoc);
         //TODO: Better do this via switch
         if(rc == EAGAIN){
+            std::cout << "[vks][" << __func__ << "][" << __LINE__ << "]" << std::endl;
             if(retryNum >= max_retry){
                 //TODO: call back to caller wtih the right error code.
                 //Find the right error code as per asio manual, or create new one if not available
-                boost::asio::post(this->ioc, [cb](){cb(boost::system::error_code(), 10);});
+                boost::asio::post(this->ioc, [cb](){cb(boost::system::error_code(), 0);});
                 return;
             }
             this->timer.expires_after(retryDuration);
@@ -188,8 +184,9 @@ private:
             std::size_t readSize = (size_t)ESPI_LEN(oob_pkt->len_h, oob_pkt->len_l);
             boost::asio::post(this->ioc, [readSize,cb](){cb(boost::system::error_code(), readSize);});
         } else if(rc != 0) {
+            std::cout << "[vks][" << __func__ << "][" << __LINE__ << "]" << std::endl;
             //TODO: call the caller wtih an error code that is equivalent to ioctl return
-            boost::asio::post(this->ioc, [cb](){cb(boost::system::error_code(), 10);});
+            boost::asio::post(this->ioc, [cb](){cb(boost::system::error_code(), 0);});
         }
     }
 
