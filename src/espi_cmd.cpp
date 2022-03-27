@@ -29,14 +29,14 @@ int main(){
     boost::asio::io_context io;
 
     auto oobHandle = espi::EspioobChannel(io);
-    std::vector<uint8_t> payload = {0x0F};
-    std::array<uint8_t, ASPEED_ESPI_PKT_LEN_MAX> recvBuffer;
-    oobHandle.asyncTransact(0x01, 0x01, payload, recvBuffer,
-                            [&](boost::system::error_code e, std::size_t len){
+    std::vector<uint8_t> txPayload = {0x0F};
+    std::vector<uint8_t> rxPayload(32);
+    oobHandle.asyncTransact(0x01, 0x01, txPayload, rxPayload,
+                            [&](boost::system::error_code e){
                                 std::cout << "error" << e << std::endl
-                                          <<  "len" << len << std::endl;
-                                for(std::size_t i = 0; i < len; i++){
-                                    std::cout << "0x" << std::hex << (int)recvBuffer[i] << " ";
+                                          <<  "len" << rxPayload.size() << std::endl;
+                                for(std::size_t i = 0; i < rxPayload.size(); i++){
+                                    std::cout << "0x" << std::hex << (int)rxPayload[i] << " ";
                                 }
                                 std::cout << std::endl;
                             });

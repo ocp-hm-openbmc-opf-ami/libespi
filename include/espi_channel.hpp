@@ -21,6 +21,7 @@
 #include <memory>
 #include <sys/ioctl.h>
 #include <vector>
+#include <iomanip>
 
 #include "linux/aspeed-espi-ioc.h"
 
@@ -32,6 +33,13 @@ enum class EspiCycle: uint8_t {
 
 const std::string oobDeviceFile = "/dev/aspeed-espi-oob";
 
+void hexdump(const std::vector<uint8_t> &data, const std::string &prefix = ""){
+    std::cout << prefix ;
+    for(auto &i : data){
+        std::cout << std::hex << std::setfill('0') << std::setw(2) << (int)i << " ";
+    }
+    std::cout << std::endl;
+}
 
 boost::asio::mutable_buffer vectorToBuffer(std::vector<uint8_t> &);
 class EspiChannel {
@@ -91,45 +99,42 @@ public:
     }
 
     template <typename WriteHandler>
-    void asyncSend(uint8_t smbus_id, uint8_t command_code, std::vector<uint8_t> payload,
+    void asyncSend(uint8_t smbus_id, uint8_t command_code, const std::vector<uint8_t> &txPayload,
                    WriteHandler cb){
         std::vector<uint8_t> txPacket;
-        //espi header related stuff,
         //TODO: better move and correct this logic in parent's frame buffer. All channels
         //except virtual wire need it.
         txPacket.push_back((uint8_t)EspiCycle::outOfBound);
-        txPacket.push_back(((0xF0 & this->get_tag()) | ESPI_LEN_HIGH(3 + payload.size())));
-        txPacket.push_back(ESPI_LEN_LOW(3 + payload.size()));
+        txPacket.push_back(((0xF0 & this->get_tag()) | ESPI_LEN_HIGH(3 + txPayload.size())));
+        txPacket.push_back(ESPI_LEN_LOW(3 + txPayload.size()));
         //setup byte 3 to 5, espi oob specific
         txPacket.push_back(smbus_id << 1);
         txPacket.push_back(command_code);
-        txPacket.push_back(static_cast<uint8_t>(payload.size()));
+        txPacket.push_back(static_cast<uint8_t>(txPayload.size()));
 
-        //get everything from payload
+        //get everything from txPayload
         //TODO: use std::for_each or some iterator like that
-        for(auto it = payload.cbegin(); it != payload.cend(); it++){
+        for(auto it = txPayload.cbegin(); it != txPayload.cend(); it++){
             txPacket.push_back(*it);
         }
         this->doSend(txPacket, cb);
     }
 
-    template <std::size_t length, typename ReadHandler>
-    void asyncReceive(std::array<uint8_t, length> &receiveArray, ReadHandler cb) {
-        boost::asio::mutable_buffer receiveBuffer = boost::asio::buffer(receiveArray);
-        this->asyncReceive(receiveBuffer, cb);
+    template <typename ReadHandler>
+    void asyncReceive(std::vector<uint8_t> &rxPayload, ReadHandler cb) {
+        rxPayload.resize(rxPayload.size() + 6);
+        //After resize rxPayload becomes rxPacket
+        this->doReceive(rxPayload, cb);
     }
 
     template <typename ReadHandler>
-    void asyncReceive(boost::asio::mutable_buffer &receiveBuffer, ReadHandler cb) {
-        this->doReceive(receiveBuffer, cb);
-    }
-
-    template <std::size_t length, typename ReadHandler>
-    void asyncTransact(uint8_t smbus_id, uint8_t command_code, std::vector<uint8_t> payload,
-                       std::array<uint8_t, length> &receiveArray, ReadHandler cb){
-        this->asyncSend(smbus_id, command_code, payload, [&](boost::system::error_code ec){
+    void asyncTransact(uint8_t smbus_id, uint8_t command_code,
+                       const std::vector<uint8_t> txPayload,
+                       std::vector<uint8_t> &rxPayload, ReadHandler cb){
+        this->asyncSend(smbus_id, command_code, txPayload, [&](boost::system::error_code ec){
+            //TODO: handle all possible errors here
             std::cout << "Send error code " << ec << std::endl;
-            this->asyncReceive(receiveArray, cb);
+            this->asyncReceive(rxPayload, cb);
         });
     }
 
@@ -149,6 +154,7 @@ private:
         for(std::size_t i = 0; i < txPacket.size(); i++){
             std::cout << "0x" << std::hex << (int)txPacket[i] << " ";
         }
+        std::cout << std::endl;
         int rc = this->do_ioctl(ASPEED_ESPI_OOB_PUT_TX, &espiIoc);
         if(rc == 0){
             boost::asio::post(this->ioc, [=](){ cb(boost::system::error_code());});
@@ -160,33 +166,49 @@ private:
     }
 
     template <typename ReadHandler>
-    void doReceive(boost::asio::mutable_buffer &receiveBuffer, ReadHandler cb,
-                   uint8_t retryNum = 0){
+    void doReceive(std::vector<uint8_t> &rxPacket, ReadHandler cb, uint8_t retryNum = 0){
         struct aspeed_espi_ioc espiIoc;
-        espiIoc.pkt = (uint8_t*)receiveBuffer.data();
-        espiIoc.pkt_len = receiveBuffer.size();
+        espiIoc.pkt = (uint8_t*)rxPacket.data();
+        espiIoc.pkt_len = rxPacket.size();
         int rc = this->do_ioctl(ASPEED_ESPI_OOB_GET_RX, &espiIoc);
-        //TODO: Better do this via switch
-        if(rc == EAGAIN){
-            std::cout << "[vks][" << __func__ << "][" << __LINE__ << "]" << std::endl;
-            if(retryNum >= max_retry){
-                //TODO: call back to caller wtih the right error code.
-                //Find the right error code as per asio manual, or create new one if not available
-                boost::asio::post(this->ioc, [cb](){cb(boost::system::error_code(), 0);});
-                return;
-            }
-            this->timer.expires_after(retryDuration);
-            this->timer.async_wait([&](const boost::system::error_code &error){
-                    this->doReceive(receiveBuffer, cb, retryNum + 1);
-            });
-        } else if(rc == 0) {
-            struct espi_oob_msg *oob_pkt = (struct espi_oob_msg*)espiIoc.pkt;
-            std::size_t readSize = (size_t)ESPI_LEN(oob_pkt->len_h, oob_pkt->len_l);
-            boost::asio::post(this->ioc, [readSize,cb](){cb(boost::system::error_code(), readSize);});
-        } else if(rc != 0) {
-            std::cout << "[vks][" << __func__ << "][" << __LINE__ << "]" << std::endl;
-            //TODO: call the caller wtih an error code that is equivalent to ioctl return
-            boost::asio::post(this->ioc, [cb](){cb(boost::system::error_code(), 0);});
+        switch(rc){
+            case 0:
+                {
+                    struct espi_oob_msg *oob_pkt = (struct espi_oob_msg*)espiIoc.pkt;
+                    std::size_t readSize = (size_t)ESPI_LEN(oob_pkt->len_h, oob_pkt->len_l);
+                    assert(rxPacket.size() > 6);
+                    //TODO: good to have asserts to check if packet is valid one
+                    //TODO: use std::algorithm to do this
+                    hexdump(rxPacket, "Rx :");
+                    for(std::size_t i = 0; i < readSize - 3; i++) {
+                        rxPacket[i] = rxPacket[i + 6];
+                    }
+                    rxPacket.resize(readSize - 3);
+                    boost::asio::post(this->ioc, [readSize,cb](){
+                            cb(boost::system::error_code());
+                        });
+                }
+                break;
+            case EAGAIN:
+                if(retryNum >= max_retry){
+                    //TODO: call back to caller wtih the right error code.
+                    //Find the right error code as per asio manual, or create new one if not
+                    //available
+                    boost::asio::post(this->ioc, [cb](){cb(boost::system::error_code());});
+                    return;
+                }
+                this->timer.expires_after(retryDuration);
+                this->timer.async_wait([&](const boost::system::error_code &){
+                        std::cout << "Retry count " << retryNum << std::endl;
+                        this->doReceive(rxPacket, cb, retryNum + 1);
+                });
+                break;
+            //TODO: Add other cases that driver returns
+            default:
+                std::cout << "[vks][" << __func__ << "][" << __LINE__ << "]" << std::endl;
+                //TODO: call the caller wtih an error code that is equivalent to ioctl return
+                boost::asio::post(this->ioc, [cb](){cb(boost::system::error_code());});
+                break;
         }
     }
 
