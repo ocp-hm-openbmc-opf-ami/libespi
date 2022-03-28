@@ -234,7 +234,7 @@ private:
                 break;
             case EINVAL:
                 std::cout << "[vks][" << __func__ << "][" << __LINE__ << "]" << std::endl;
-                if(rxPacket.size() == ASPEED_ESPI_PKT_LEN_MAX){
+                if(rxPacket.size() >= ASPEED_ESPI_PKT_LEN_MAX){
                     break;
                 }
                 rxPacket.resize(ASPEED_ESPI_PKT_LEN_MAX);
