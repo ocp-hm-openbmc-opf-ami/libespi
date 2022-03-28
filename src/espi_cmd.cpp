@@ -28,13 +28,13 @@ private:
 int main(){
     boost::asio::io_context io;
 
-    auto oobHandle = espi::EspioobChannel(io);
+    auto oobHandle = espi::EspioobChannel::getHandle(io);
     std::vector<uint8_t> txPayload = {0x0F};
     std::vector<uint8_t> rxPayload(32);
-    oobHandle.asyncTransact(0x01, 0x01, txPayload, rxPayload,
+    oobHandle->asyncTransact(0x01, 0x01, txPayload, rxPayload,
                             [&](boost::system::error_code e){
-                                std::cout << "error" << e << std::endl
-                                          <<  "len" << rxPayload.size() << std::endl;
+                                std::cout << "error =" << e
+                                          <<  ", len =" << rxPayload.size() << std::endl;
                                 for(std::size_t i = 0; i < rxPayload.size(); i++){
                                     std::cout << "0x" << std::hex << (int)rxPayload[i] << " ";
                                 }
@@ -43,5 +43,6 @@ int main(){
 
     io.run();
     std::cout << "Done" << std::endl;
+
     return 0;
 }

@@ -22,6 +22,7 @@
 #include <sys/ioctl.h>
 #include <vector>
 #include <iomanip>
+#include <errno.h>
 
 #include "linux/aspeed-espi-ioc.h"
 
@@ -32,35 +33,42 @@ enum class EspiCycle: uint8_t {
 };
 
 const std::string oobDeviceFile = "/dev/aspeed-espi-oob";
+constexpr bool DEBUG = false;
 
 void hexdump(const std::vector<uint8_t> &data, const std::string &prefix = ""){
     std::cout << prefix ;
     for(auto &i : data){
-        std::cout << std::hex << std::setfill('0') << std::setw(2) << (int)i << " ";
+        std::cout << "0x" << std::hex << std::setfill('0') << std::setw(2) << (int)i << " ";
     }
-    std::cout << std::endl;
+    std::cout << std::dec << std::endl;
 }
 
-boost::asio::mutable_buffer vectorToBuffer(std::vector<uint8_t> &);
 class EspiChannel {
 protected:
     //TODO: Add code to open file or set up file for ioctl usage
     EspiChannel(boost::asio::io_context &ioc_, const std::string &deviceFile):
-        ioc(ioc_) {
-        this->fd = open(deviceFile.c_str(), O_NONBLOCK);
-        if(this->fd < 0){
-            //TODO: throw some exception
+            ioc(ioc_),fd(open(deviceFile.c_str(), O_NONBLOCK))  {
+        if(fd < 0) {
+            throw boost::system::error_code(errno, boost::system::system_category());
         }
     }
 
     virtual ~EspiChannel() {close(fd);}
     boost::system::error_code frame_header(const EspiCycle &cycle_type,
-            std::vector<uint8_t> &packet) noexcept {
-        assert(packet.size() >= headerLength);
-        packet[0] = (uint8_t)cycle_type;
-        packet[1] = 0xF0 & this->get_tag();
-        packet[1] = 0x0F & (packet.size() - headerLength);
-        packet[2] = packet.size() & 0xFF;
+            std::vector<uint8_t> &packet, std::size_t espiPayloadLen) noexcept {
+        if(packet.size() == 0){
+            packet.push_back((uint8_t)EspiCycle::outOfBound);
+            packet.push_back(((0xF0 & this->get_tag()) |
+                               ESPI_LEN_HIGH(espiPayloadLen)));
+            packet.push_back(ESPI_LEN_LOW(espiPayloadLen));
+        } else {
+            if(packet.size() < espiHeaderLen){
+                return boost::asio::error::no_buffer_space;
+            }
+            packet[0] = (uint8_t)cycle_type;
+            packet[1] = ((0xF0 & this->get_tag()) | ESPI_LEN_HIGH(espiPayloadLen));
+            packet[2] = ESPI_LEN_LOW(espiPayloadLen);
+        }
         return boost::system::error_code();
     }
 
@@ -73,7 +81,7 @@ protected:
     boost::asio::io_context &ioc;
     int fd;
 
-    static constexpr std::size_t headerLength = 0x03;
+    static constexpr std::size_t espiHeaderLen = 0x03;
 };
 
 void test_method();
@@ -83,47 +91,54 @@ class EspioobChannel : public EspiChannel {
 public:
     EspioobChannel(boost::asio::io_context &ioc, const std::string deviceFile = oobDeviceFile):
         EspiChannel(ioc, deviceFile), timer(ioc){
+        std::cout << "EspioobChannel ctor" << std::endl;
     }
-    ~EspioobChannel(){}
+    ~EspioobChannel(){
+        std::cout << "EspioobChannel dtor" << std::endl;
+    }
 
-    static std::shared_ptr<EspioobChannel> singleton;
     static std::shared_ptr<EspioobChannel> getHandle(boost::asio::io_context &ioc){
+        static std::shared_ptr<EspioobChannel> singleton;
         if(!singleton) {
             singleton = std::make_shared<EspioobChannel>(ioc);
         }
         return singleton;
     }
 
-    static void destroyHandle(){
-        singleton = nullptr;
-    }
-
     template <typename WriteHandler>
     void asyncSend(uint8_t smbus_id, uint8_t command_code, const std::vector<uint8_t> &txPayload,
                    WriteHandler cb){
+        boost::system::error_code ec;
         std::vector<uint8_t> txPacket;
-        //TODO: better move and correct this logic in parent's frame buffer. All channels
-        //except virtual wire need it.
-        txPacket.push_back((uint8_t)EspiCycle::outOfBound);
-        txPacket.push_back(((0xF0 & this->get_tag()) | ESPI_LEN_HIGH(3 + txPayload.size())));
-        txPacket.push_back(ESPI_LEN_LOW(3 + txPayload.size()));
-        //setup byte 3 to 5, espi oob specific
+        if(txPayload.size() > OOBMaxPayloadLen){
+            boost::asio::post(this->ioc, [=](){
+                    cb(boost::asio::error::message_size);
+                });
+            return;
+        }
+        if((ec = this->frame_header(EspiCycle::outOfBound, txPacket,
+                                    OOBHeaderLen + txPayload.size()))){
+            boost::asio::post(this->ioc, [=](){
+                    cb(ec);
+                });
+            return;
+        }
         txPacket.push_back(smbus_id << 1);
         txPacket.push_back(command_code);
         txPacket.push_back(static_cast<uint8_t>(txPayload.size()));
 
-        //get everything from txPayload
-        //TODO: use std::for_each or some iterator like that
-        for(auto it = txPayload.cbegin(); it != txPayload.cend(); it++){
-            txPacket.push_back(*it);
-        }
+        std::for_each(txPayload.cbegin(), txPayload.cend(),
+                      [&](uint8_t i){
+                          txPacket.push_back(i);
+                      });
         this->doSend(txPacket, cb);
     }
 
     template <typename ReadHandler>
     void asyncReceive(std::vector<uint8_t> &rxPayload, ReadHandler cb) {
-        rxPayload.resize(rxPayload.size() + 6);
-        //After resize rxPayload becomes rxPacket
+        //User is interested in payload but we are interested in full eSPI packet so we
+        //extend it enough to to hold all eSPI headers.
+        rxPayload.resize(rxPayload.size() + espiHeaderLen + OOBHeaderLen);
         this->doReceive(rxPayload, cb);
     }
 
@@ -131,10 +146,12 @@ public:
     void asyncTransact(uint8_t smbus_id, uint8_t command_code,
                        const std::vector<uint8_t> txPayload,
                        std::vector<uint8_t> &rxPayload, ReadHandler cb){
-        this->asyncSend(smbus_id, command_code, txPayload, [&](boost::system::error_code ec){
-            //TODO: handle all possible errors here
-            std::cout << "Send error code " << ec << std::endl;
-            this->asyncReceive(rxPayload, cb);
+        this->asyncSend(smbus_id, command_code, txPayload, [&](const boost::system::error_code &ec){
+            if(ec){
+                cb(ec);
+            } else {
+                this->asyncReceive(rxPayload, cb);
+            }
         });
     }
 
@@ -146,21 +163,22 @@ private:
         struct espi_oob_msg *oobPkt = (struct espi_oob_msg*)(txPacket.data());
         espiIoc.pkt = (uint8_t*)oobPkt;
         espiIoc.pkt_len = txPacket.size();
-        std::cout << "cycle :" << std::hex << (int)oobPkt->cyc << std::endl;
-        std::cout << "len_h :" << std::hex << (int)oobPkt->len_h << std::endl;
-        std::cout << "tag   :" << std::hex << (int)oobPkt->tag << std::endl;
-        std::cout << "len_l :" << std::hex << (int)oobPkt->len_l << std::endl;
-
-        for(std::size_t i = 0; i < txPacket.size(); i++){
-            std::cout << "0x" << std::hex << (int)txPacket[i] << " ";
+        if constexpr(DEBUG){
+            std::cout << "Tx cycle :" << std::hex << std::setfill('0') << std::setw(2)
+                      << (int)oobPkt->cyc << ",   "
+                      << "tag :"  << (int)oobPkt->tag << ",   "
+                      << "len :" << std::setw(4)
+                      << ESPI_LEN((uint8_t)oobPkt->len_h, (uint8_t)oobPkt->len_l)
+                      << std::dec << std::endl;
+            hexdump(txPacket);
         }
-        std::cout << std::endl;
         int rc = this->do_ioctl(ASPEED_ESPI_OOB_PUT_TX, &espiIoc);
         if(rc == 0){
             boost::asio::post(this->ioc, [=](){ cb(boost::system::error_code());});
         } else {
-            std::cout << "[vks][" << __func__ << "][" << __LINE__ << "]" << std::endl;
             //TODO: send proper error code
+            if(rc == EBUSY){
+            }
             boost::asio::post(this->ioc, [=](){ cb(boost::system::error_code());});
         }
     }
@@ -174,27 +192,40 @@ private:
         switch(rc){
             case 0:
                 {
-                    struct espi_oob_msg *oob_pkt = (struct espi_oob_msg*)espiIoc.pkt;
-                    std::size_t readSize = (size_t)ESPI_LEN(oob_pkt->len_h, oob_pkt->len_l);
-                    assert(rxPacket.size() > 6);
-                    //TODO: good to have asserts to check if packet is valid one
-                    //TODO: use std::algorithm to do this
-                    hexdump(rxPacket, "Rx :");
-                    for(std::size_t i = 0; i < readSize - 3; i++) {
-                        rxPacket[i] = rxPacket[i + 6];
+                    struct espi_oob_msg *oobPkt = (struct espi_oob_msg*)espiIoc.pkt;
+                    std::size_t espiPayloadLen =
+                            (std::size_t)ESPI_LEN(oobPkt->len_h, oobPkt->len_l);
+                    std::size_t espiPacketLen = espiPayloadLen + espiHeaderLen;
+                    std::size_t OOBPayloadLen = espiPayloadLen - OOBHeaderLen;
+
+                    assert(espiPayloadLen  == OOBHeaderLen + 
+                            rxPacket[espiHeaderLen + OOBHeaderLenIndex]);
+                    rxPacket.resize(espiPacketLen);
+                    if constexpr (DEBUG) {
+                        std::cout << "Rx cycle :" << std::hex << std::setfill('0') << std::setw(2)
+                                  << (int)oobPkt->cyc << ",   "
+                                  << "tag :"  << (int)oobPkt->tag << ",   "
+                                  << "len :" << std::setw(4)
+                                  << ESPI_LEN((uint8_t)oobPkt->len_h, (uint8_t)oobPkt->len_l)
+                                  << std::dec << std::endl;
+                        hexdump(rxPacket, "");
                     }
-                    rxPacket.resize(readSize - 3);
-                    boost::asio::post(this->ioc, [readSize,cb](){
+                    assert(rxPacket.size() >= OOBSmallestPacketLen);
+                    //Convert espi packet in espi oob payload
+                    std::rotate(rxPacket.begin(), rxPacket.begin() + espiHeaderLen + OOBHeaderLen,
+                                rxPacket.end());
+                    rxPacket.resize(OOBPayloadLen);
+                    
+                    boost::asio::post(this->ioc, [=](){
                             cb(boost::system::error_code());
                         });
                 }
                 break;
             case EAGAIN:
                 if(retryNum >= max_retry){
-                    //TODO: call back to caller wtih the right error code.
-                    //Find the right error code as per asio manual, or create new one if not
-                    //available
-                    boost::asio::post(this->ioc, [cb](){cb(boost::system::error_code());});
+                    boost::asio::post(this->ioc, [cb](){
+                            cb(boost::asio::error::timed_out);
+                        });
                     return;
                 }
                 this->timer.expires_after(retryDuration);
@@ -205,9 +236,11 @@ private:
                 break;
             //TODO: Add other cases that driver returns
             default:
-                std::cout << "[vks][" << __func__ << "][" << __LINE__ << "]" << std::endl;
-                //TODO: call the caller wtih an error code that is equivalent to ioctl return
-                boost::asio::post(this->ioc, [cb](){cb(boost::system::error_code());});
+                std::cerr << "Unknown error encountered on eSPI OOB channel receive error code :"
+                          << rc << std::endl;
+                boost::asio::post(this->ioc, [=](){
+                        cb(boost::system::error_code(rc, boost::system::system_category()));
+                    });
                 break;
         }
     }
@@ -223,6 +256,11 @@ private:
     static constexpr uint8_t max_retry = 3;
     static constexpr boost::asio::chrono::duration<int, std::milli> retryDuration =
             boost::asio::chrono::milliseconds(500);
+
+    static constexpr std::size_t OOBHeaderLen = 0x03;
+    static constexpr std::size_t OOBHeaderLenIndex = 0x02;
+    static constexpr std::size_t OOBSmallestPacketLen = 0x06;
+    static constexpr std::size_t OOBMaxPayloadLen = 0xFF;
 };
 
 }
