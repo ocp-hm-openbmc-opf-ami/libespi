@@ -150,14 +150,15 @@ public:
     void asyncTransact(uint8_t smbus_id, uint8_t command_code,
                        const std::vector<uint8_t> txPayload,
                        std::vector<uint8_t> &rxPayload, ReadHandler cb){
-        this->asyncSend(smbus_id, command_code, txPayload, [&,cb](const boost::system::error_code &ec){
-            if(ec){
-                std::cout << "async_send returnd error" << std::endl;
-                cb(ec);
-            } else {
-                this->asyncReceive(rxPayload, cb);
-            }
-        });
+        this->asyncSend(smbus_id, command_code, txPayload,
+                        [&,cb](const boost::system::error_code &ec){
+                            if(ec){
+                                std::cout << "async_send returnd error" << std::endl;
+                                cb(ec);
+                            } else {
+                                this->asyncReceive(rxPayload, cb);
+                            }
+                        });
     }
 
 
@@ -189,7 +190,6 @@ private:
 
     template <typename ReadHandler>
     void doReceive(std::vector<uint8_t> &rxPacket, ReadHandler cb, uint8_t retryNum = 0){
-        //std::cout << "[vks][" << __func__ << "][" << __LINE__ << "] retryNum :" << (int)retryNum <<  std::endl;
         struct aspeed_espi_ioc espiIoc;
         espiIoc.pkt = (uint8_t*)rxPacket.data();
         espiIoc.pkt_len = rxPacket.size();
@@ -233,9 +233,11 @@ private:
                 }
                 break;
             case EINVAL:
-                std::cout << "[vks][" << __func__ << "][" << __LINE__ << "]" << std::endl;
                 if(rxPacket.size() >= ASPEED_ESPI_PKT_LEN_MAX){
-                    break;
+                    boost::asio::post(this->ioc, [=](){
+                        cb(boost::system::error_code(rc, boost::system::system_category()));
+                    });
+                    return;
                 }
                 rxPacket.resize(ASPEED_ESPI_PKT_LEN_MAX);
             case EAGAIN:
@@ -263,7 +265,7 @@ private:
     }
 
     virtual uint8_t get_tag(){
-        //Ordering can allow multiple simontanous transaction at a time. Refer Section 5.1 of
+        //Ordering can allow simontaneous transaction. Refer Section 5.1 of
         //eSPI specification for more details.
         //TODO: If ordering is needed add this in future.
         return 0x00;
