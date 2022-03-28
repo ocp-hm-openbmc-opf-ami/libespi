@@ -43,6 +43,8 @@ void hexdump(const std::vector<uint8_t> &data, const std::string &prefix = ""){
     std::cout << std::dec << std::endl;
 }
 
+typedef std::function<void(const boost::system::error_code&)> SimpleECCallback;
+
 class EspiChannel {
 protected:
     EspiChannel(boost::asio::io_context &ioc_, const std::string &deviceFile):
@@ -111,9 +113,8 @@ public:
         return singleton;
     }
 
-    template <typename WriteHandler>
     void asyncSend(uint8_t smbus_id, uint8_t command_code, const std::vector<uint8_t> &txPayload,
-                   WriteHandler cb){
+                   SimpleECCallback cb){
         boost::system::error_code ec;
         std::vector<uint8_t> txPacket;
         if(txPayload.size() > OOBMaxPayloadLen){
@@ -140,16 +141,14 @@ public:
         this->doSend(txPacket, cb);
     }
 
-    template <typename ReadHandler>
-    void asyncReceive(std::vector<uint8_t> &rxPayload, ReadHandler cb) {
+    void asyncReceive(std::vector<uint8_t> &rxPayload, SimpleECCallback cb) {
         rxPayload.resize(rxPayload.size() + espiHeaderLen + OOBHeaderLen);
         this->doReceive(rxPayload, cb);
     }
 
-    template <typename ReadHandler>
     void asyncTransact(uint8_t smbus_id, uint8_t command_code,
                        const std::vector<uint8_t> txPayload,
-                       std::vector<uint8_t> &rxPayload, ReadHandler cb){
+                       std::vector<uint8_t> &rxPayload, SimpleECCallback cb){
         this->asyncSend(smbus_id, command_code, txPayload,
                         [&,cb](const boost::system::error_code &ec){
                             if(ec){
@@ -163,8 +162,7 @@ public:
 
 
 private:
-    template <typename WriteHandler>
-    void doSend(std::vector<uint8_t> &txPacket, WriteHandler cb){
+    void doSend(std::vector<uint8_t> &txPacket, SimpleECCallback cb){
         struct aspeed_espi_ioc espiIoc;
         struct espi_oob_msg *oobPkt = (struct espi_oob_msg*)(txPacket.data());
         espiIoc.pkt = (uint8_t*)oobPkt;
@@ -188,8 +186,7 @@ private:
         }
     }
 
-    template <typename ReadHandler>
-    void doReceive(std::vector<uint8_t> &rxPacket, ReadHandler cb, uint8_t retryNum = 0){
+    void doReceive(std::vector<uint8_t> &rxPacket, SimpleECCallback cb, uint8_t retryNum = 0){
         struct aspeed_espi_ioc espiIoc;
         espiIoc.pkt = (uint8_t*)rxPacket.data();
         espiIoc.pkt_len = rxPacket.size();
