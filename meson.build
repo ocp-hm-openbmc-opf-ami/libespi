@@ -14,7 +14,7 @@ add_project_arguments(
 cpp = meson.get_compiler('cpp')
 dep_pthread = cpp.find_library('pthread', required : true)
 
-src_files = ['src/espi_channel.cpp']
+src_files = ['src/espi_channel.cpp', 'src/espi_oob_channel.cpp']
 inc = include_directories('include')
 
 libespi = shared_library('espi',

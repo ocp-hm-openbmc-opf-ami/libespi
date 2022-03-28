@@ -13,215 +13,164 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 */
+#include <cassert>
+#include <boost/asio.hpp>
+#include <iostream>
+#include <iomanip>
 
 #include "espi_oob_channel.hpp"
 
-#include "include/aspeed-espi-ioc.h"
-#include <string.h>
-#include <sys/ioctl.h>
+namespace espi{
 
-#define ESPI_OOB_MSG 0x21
-
-#define BMC_ESPI_ADDR 0x0F
-
-struct smbus_comm_hdr {
-  uint8_t dest_slave_addr;
-  uint8_t cmd;
-  uint8_t len;
-  uint8_t source_slave_addr;
-} __attribute__((packed));
-
-espi_oob_channel::espi_oob_channel(int *io_context, const char *device_file)
-    : espi_channel(io_context, device_file) {
-  retry_count = 0;
-  wait_duration = 0;
-}
-
-espi_oob_channel &espi_oob_channel::Instance(int *io_context,
-                                             const char *device_file) {
-  static espi_oob_channel obj(io_context, device_file);
-  return obj;
-}
-
-EESPIStatus espi_oob_channel::frame_packet(uint8_t *transact_buffer,
-                                           uint16_t len, uint8_t smbus_id,
-                                           uint8_t command_code,
-                                           uint8_t *payload,
-                                           uint16_t payload_len) {
-  if (transact_buffer == NULL) {
-    return ESPI_CC_INVALID_REQ;
-  }
-
-  uint8_t hdr_len =
-      sizeof(struct espi_comm_hdr) + sizeof(struct smbus_comm_hdr);
-  if (len <= hdr_len) {
-    return ESPI_CC_INVALID_LEN;
-  }
-
-  espi_channel::frame_packet(ESPI_OOB_MSG, transact_buffer,
-                             (uint16_t)(len - sizeof(struct espi_comm_hdr)));
-
-  struct smbus_comm_hdr *smbus_hdr = (struct smbus_comm_hdr *)(transact_buffer);
-  smbus_hdr->dest_slave_addr = smbus_id;
-  smbus_hdr->cmd = command_code;
-  smbus_hdr->len = (uint8_t)(len - hdr_len + 1);
-  smbus_hdr->source_slave_addr = BMC_ESPI_ADDR;
-
-  if (payload != NULL) {
-    memcpy((transact_buffer + hdr_len), payload, payload_len);
-  }
-  return ESPI_CC_SUCCESS;
-}
-
-int espi_oob_channel::async_send(uint8_t *transact_buffer, uint16_t len,
-                                 uint8_t *payload, uint16_t payload_len,
-                                 uint8_t smbus_id, uint8_t command_code) {
-  if (fd < 0) {
-    return -1;
-  }
-
-  if (transact_buffer == NULL || payload == NULL) {
-    return ESPI_CC_INVALID_REQ;
-  }
-
-  uint8_t hdr_len =
-      sizeof(struct espi_comm_hdr) + sizeof(struct smbus_comm_hdr);
-  uint32_t data_len = hdr_len;
-
-  if (len < hdr_len) {
-    return ESPI_CC_INVALID_LEN;
-  }
-
-  if (payload != NULL) {
-    if (payload_len <= 0) {
-      return ESPI_CC_INVALID_LEN;
-    } else {
-      data_len += payload_len;
+void
+EspioobChannel::asyncSend(uint8_t smbus_id, uint8_t command_code,
+                          const std::vector<uint8_t> &txPayload, SimpleECCallback cb){
+    boost::system::error_code ec;
+    std::vector<uint8_t> txPacket;
+    if(txPayload.size() > OOBMaxPayloadLen){
+        boost::asio::post(this->ioc, [=](){
+                cb(boost::asio::error::message_size);
+            });
+        return;
     }
-  }
-
-  if (len < data_len) {
-    return ESPI_CC_INVALID_REQ;
-  }
-
-  EESPIStatus ret = ESPI_CC_SUCCESS;
-  if (frame_packet(transact_buffer, (uint16_t)data_len, smbus_id, command_code,
-                   payload, payload_len) != ESPI_CC_SUCCESS) {
-    return ESPI_CC_INVALID_REQ;
-  }
-
-  struct aspeed_espi_ioc espi_ioc;
-  espi_ioc.pkt = transact_buffer;
-  espi_ioc.pkt_len = data_len;
-  int ioctl_ret = do_ioctl(ASPEED_ESPI_OOB_PUT_TX, &espi_ioc);
-  if (ioctl_ret < 0) {
-    return ioctl_ret;
-  }
-
-  return ret;
-}
-
-int espi_oob_channel::async_receive(uint8_t *transact_buffer, uint8_t *resp,
-                                    uint16_t resp_len) {
-  if (fd < 0 || transact_buffer == NULL || resp == NULL) {
-    return ESPI_CC_INVALID_REQ;
-  }
-
-  struct espi_comm_hdr *espi_hdr = (struct espi_comm_hdr *)(transact_buffer);
-  uint16_t len = (uint16_t)((espi_hdr->len_h << 8) | (espi_hdr->len_l & 0xff));
-  if (len <= 0) {
-    return ESPI_CC_INVALID_LEN;
-  }
-
-  EESPIStatus ret = ESPI_CC_SUCCESS;
-
-  struct aspeed_espi_ioc espi_ioc;
-  espi_ioc.pkt = transact_buffer;
-  espi_ioc.pkt_len = (uint32_t)len;
-
-  int ioctl_ret = do_ioctl(ASPEED_ESPI_OOB_GET_RX, &espi_ioc);
-  if (ioctl_ret < 0) {
-    return ret;
-  }
-
-  uint8_t hdr_len =
-      sizeof(struct espi_comm_hdr) + sizeof(struct smbus_comm_hdr);
-  if (espi_ioc.pkt_len <= hdr_len) {
-    return ESPI_CC_INVALID_LEN;
-  }
-
-  struct espi_comm_hdr *res_espi_hdr = (struct espi_comm_hdr *)(espi_ioc.pkt);
-
-  resp_len = (uint16_t)(((res_espi_hdr->len_h << 8) | res_espi_hdr->len_l) -
-                        (uint8_t)(sizeof(struct smbus_comm_hdr)));
-
-  if (resp_len > 0) {
-    memcpy(resp, (espi_ioc.pkt + hdr_len), resp_len);
-  }
-  return ret;
-}
-
-int espi_oob_channel::transact(uint8_t *transact_buffer, uint16_t len,
-                               uint8_t smbus_id, uint8_t command_code,
-                               uint8_t *payload, uint16_t payload_len,
-                               uint8_t *resp, uint16_t resp_len) {
-  if (fd < 0) {
-    return -1;
-  }
-
-  if (transact_buffer == NULL || payload == NULL) {
-    return ESPI_CC_INVALID_REQ;
-  }
-
-  uint8_t hdr_len =
-      sizeof(struct espi_comm_hdr) + sizeof(struct smbus_comm_hdr);
-  uint32_t data_len = hdr_len;
-
-  if (len < hdr_len) {
-    return ESPI_CC_INVALID_LEN;
-  }
-  if (payload != NULL) {
-    if (payload_len <= 0) {
-      return ESPI_CC_INVALID_LEN;
-    } else {
-      data_len += payload_len;
+    if((ec = this->frame_header(EspiCycle::outOfBound, txPacket,
+                                OOBHeaderLen + txPayload.size()))){
+        boost::asio::post(this->ioc, [=](){
+                cb(ec);
+            });
+        return;
     }
-  }
+    txPacket.push_back(smbus_id << 1);
+    txPacket.push_back(command_code);
+    txPacket.push_back(static_cast<uint8_t>(txPayload.size()));
 
-  if (len < data_len) {
-    return ESPI_CC_INVALID_REQ;
-  }
-
-  EESPIStatus ret = ESPI_CC_SUCCESS;
-  if (frame_packet(transact_buffer, (uint16_t)data_len, smbus_id, command_code,
-                   payload, payload_len) != ESPI_CC_SUCCESS) {
-    return ESPI_CC_INVALID_REQ;
-  }
-
-  struct aspeed_espi_ioc espi_ioc;
-  espi_ioc.pkt = transact_buffer;
-  espi_ioc.pkt_len = data_len;
-  int ioctl_ret = do_ioctl(ASPEED_ESPI_OOB_PUT_TX, &espi_ioc);
-  if (ioctl_ret < 0) {
-    return ioctl_ret;
-  }
-
-  ioctl_ret = do_ioctl(ASPEED_ESPI_OOB_GET_RX, &espi_ioc);
-  if (ioctl_ret < 0) {
-    return ret;
-  }
-
-  if (espi_ioc.pkt == NULL) {
-    return -1;
-  }
-
-  struct espi_comm_hdr *espi_hdr = (struct espi_comm_hdr *)(espi_ioc.pkt);
-  resp_len = (uint16_t)(((espi_hdr->len_h << 8) | espi_hdr->len_l) -
-                        (uint8_t)(sizeof(struct smbus_comm_hdr)));
-  if (resp_len > 0) {
-    memcpy(resp, (espi_ioc.pkt + hdr_len), resp_len);
-  }
-  return ret;
+    std::for_each(txPayload.cbegin(), txPayload.cend(),
+                  [&](uint8_t i){
+                      txPacket.push_back(i);
+                  });
+    this->doSend(txPacket, cb);
 }
 
-espi_oob_channel::~espi_oob_channel() {}
+void
+EspioobChannel::asyncReceive(std::vector<uint8_t> &rxPayload, SimpleECCallback cb) {
+    rxPayload.resize(rxPayload.size() + espiHeaderLen + OOBHeaderLen);
+    this->doReceive(rxPayload, cb);
+}
+void
+EspioobChannel::asyncTransact(uint8_t smbus_id, uint8_t command_code,
+                              const std::vector<uint8_t> txPayload,
+                              std::vector<uint8_t> &rxPayload, SimpleECCallback cb){
+    this->asyncSend(smbus_id, command_code, txPayload,
+                    [&,cb](const boost::system::error_code &ec){
+                        if(ec){
+                            std::cout << "async_send returnd error" << std::endl;
+                            cb(ec);
+                        } else {
+                            this->asyncReceive(rxPayload, cb);
+                        }
+                    });
+}
+void
+EspioobChannel::doSend(std::vector<uint8_t> &txPacket, SimpleECCallback cb){
+    struct aspeed_espi_ioc espiIoc;
+    struct espi_oob_msg *oobPkt = (struct espi_oob_msg*)(txPacket.data());
+    espiIoc.pkt = (uint8_t*)oobPkt;
+    espiIoc.pkt_len = txPacket.size();
+    if constexpr(DEBUG){
+        std::cout << "Tx cycle :0x" << std::hex << std::setfill('0') << std::setw(2)
+                  << (int)oobPkt->cyc << ",   "
+                  << "tag :0x"  << std::setw(2) <<(int)oobPkt->tag << ",   "
+                  << "len :0x" << std::setw(4)
+                  << ESPI_LEN((uint8_t)oobPkt->len_h, (uint8_t)oobPkt->len_l)
+                  << std::dec << std::endl;
+        hexdump(txPacket);
+    }
+    int rc = this->do_ioctl(ASPEED_ESPI_OOB_PUT_TX, &espiIoc);
+    if(rc == 0){
+        boost::asio::post(this->ioc, [=](){ cb(boost::system::error_code());});
+    } else {
+        boost::asio::post(this->ioc, [=](){
+                cb(boost::system::error_code(rc, boost::system::system_category()));
+            });
+    }
+}
+
+void
+EspioobChannel::doReceive(std::vector<uint8_t> &rxPacket, SimpleECCallback cb,
+                          uint8_t retryNum) {
+    struct aspeed_espi_ioc espiIoc;
+    espiIoc.pkt = (uint8_t*)rxPacket.data();
+    espiIoc.pkt_len = rxPacket.size();
+    int rc = this->do_ioctl(ASPEED_ESPI_OOB_GET_RX, &espiIoc);
+    switch(rc){
+        case 0:
+            {
+                struct espi_oob_msg *oobPkt = (struct espi_oob_msg*)espiIoc.pkt;
+                std::size_t espiPayloadLen =
+                        (std::size_t)ESPI_LEN(oobPkt->len_h, oobPkt->len_l);
+                std::size_t espiPacketLen = espiPayloadLen + espiHeaderLen;
+                std::size_t OOBPayloadLen = espiPayloadLen - OOBHeaderLen;
+
+                assert(espiPayloadLen  == OOBHeaderLen + 
+                        rxPacket[espiHeaderLen + OOBHeaderLenIndex]);
+                if constexpr (DEBUG) {
+                    std::cout << "Rx cycle :0x" << std::hex << std::setfill('0') << std::setw(2)
+                              << (int)oobPkt->cyc << ",   "
+                              << "tag :0x"  << std::setw(2) << (int)oobPkt->tag << ",   "
+                              << "len :0x" << std::setw(4)
+                              << ESPI_LEN((uint8_t)oobPkt->len_h, (uint8_t)oobPkt->len_l)
+                              << std::dec << std::endl;
+                }
+                rxPacket.resize(espiPacketLen);
+                if constexpr (DEBUG) {
+                    hexdump(rxPacket);
+                }
+                assert(rxPacket.size() >= OOBSmallestPacketLen);
+                //This assert is only valid till get_tag is in primitive state
+                assert(oobPkt->tag == 0x00);
+                //oobPkt and espiIoc.pkt will be invalid post rotate
+                oobPkt = nullptr;
+                espiIoc.pkt = nullptr;
+                //Convert espi packet in espi oob payload
+                std::rotate(rxPacket.begin(), rxPacket.begin() + espiHeaderLen + OOBHeaderLen,
+                            rxPacket.end());
+                rxPacket.resize(OOBPayloadLen);
+                boost::asio::post(this->ioc, [=](){
+                        cb(boost::system::error_code());
+                    });
+            }
+            break;
+        case EINVAL:
+            if(rxPacket.size() >= ASPEED_ESPI_PKT_LEN_MAX){
+                boost::asio::post(this->ioc, [=](){
+                    cb(boost::system::error_code(rc, boost::system::system_category()));
+                });
+                return;
+            }
+            rxPacket.resize(ASPEED_ESPI_PKT_LEN_MAX);
+        case EAGAIN:
+        case EBUSY:
+        case ENODATA:
+            ++retryNum;
+            std::cout << "Retrying... Fail Count :" << (int)(retryNum) << std::endl;
+            if(retryNum >= max_retry){
+                boost::asio::post(this->ioc, [rc ,cb](){
+                        cb(boost::system::error_code(rc, boost::system::system_category()));
+                    });
+                return;
+            }
+            this->timer.expires_after(retryDuration);
+            this->timer.async_wait([&,retryNum,cb](const boost::system::error_code &){
+                    this->doReceive(rxPacket, cb, retryNum);
+            });
+            break;
+        default:
+            boost::asio::post(this->ioc, [=](){
+                    cb(boost::system::error_code(rc, boost::system::system_category()));
+                });
+            break;
+    }
+}
+
+}
+
