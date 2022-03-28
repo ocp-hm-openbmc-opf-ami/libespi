@@ -2,7 +2,7 @@
 #include <boost/asio.hpp>
 #include <boost/asio/spawn.hpp>
 
-#include <espi_channel.hpp>
+#include <espi_oob_channel.hpp>
 
 /*
 class PCHTime{
