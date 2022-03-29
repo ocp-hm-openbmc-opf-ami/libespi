@@ -16,21 +16,24 @@
 
 #pragma once
 
+#include <errno.h>
+
 #include <boost/asio.hpp>
 #include <vector>
-#include <errno.h>
 
 #include "linux/aspeed-espi-ioc.h"
 
-namespace espi {
+namespace espi
+{
 
-enum class EspiCycle: uint8_t {
-    outOfBound  = 0x21
+enum class EspiCycle : uint8_t
+{
+    outOfBound = 0x21
 };
 
 constexpr bool DEBUG = true;
 
-void hexdump(const std::vector<uint8_t> &data, const std::string &prefix = "");
+void hexdump(const std::vector<uint8_t>& data, const std::string& prefix = "");
 
 typedef std::function<void(const boost::system::error_code&)> SimpleECCallback;
 /*
@@ -43,35 +46,40 @@ typedef std::function<void(const boost::system::error_code&)> SimpleECCallback;
  * Ref Section 5.1 of eSPI Interafce base Specification
  */
 
-class EspiChannel {
-protected:
-    EspiChannel(boost::asio::io_context &ioc_, const std::string &deviceFile):
-            ioc(ioc_),fd(open(deviceFile.c_str(), O_NONBLOCK))  {
-        if(fd < 0) {
-            throw boost::system::error_code(errno, boost::system::system_category());
+class EspiChannel
+{
+  protected:
+    EspiChannel(boost::asio::io_context& ioc_, const std::string& deviceFile) :
+        ioc(ioc_), fd(open(deviceFile.c_str(), O_NONBLOCK))
+    {
+        if (fd < 0)
+        {
+            throw boost::system::error_code(errno,
+                                            boost::system::system_category());
         }
     }
 
-    virtual ~EspiChannel() {
+    virtual ~EspiChannel()
+    {
         close(fd);
     }
 
     /* Frames the first three bytes of espi packet.
      */
-    boost::system::error_code frame_header(const EspiCycle &cycle_type,
-                                           std::vector<uint8_t> &packet,
+    boost::system::error_code frame_header(const EspiCycle& cycle_type,
+                                           std::vector<uint8_t>& packet,
                                            std::size_t espiPayloadLen) noexcept;
 
     virtual uint8_t get_tag() = 0;
 
     /* do_ioctl: performs ioctl. Returns 0 on success errror code on failure
      */
-    int do_ioctl(unsigned long command_code, struct aspeed_espi_ioc *ioctl_data) noexcept;
+    int do_ioctl(unsigned long command_code,
+                 struct aspeed_espi_ioc* ioctl_data) noexcept;
 
-    boost::asio::io_context &ioc;
+    boost::asio::io_context& ioc;
     int fd;
 
     static constexpr std::size_t espiHeaderLen = 0x03;
-}; //class EspiChannel
-} //namespace espi
-
+}; // class EspiChannel
+} // namespace espi

@@ -13,34 +13,44 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 */
+#include <sys/ioctl.h>
+
+#include <cassert>
+#include <espi_channel.hpp>
+#include <iomanip>
 #include <iostream>
 #include <string>
-#include <iomanip>
-#include <sys/ioctl.h>
-#include <cassert>
 
-#include <espi_channel.hpp>
+namespace espi
+{
 
-namespace espi {
-
-void hexdump(const std::vector<uint8_t> &data, const std::string &prefix){
-    std::cout << prefix ;
-    for(auto &i : data){
-        std::cout << "0x" << std::hex << std::setfill('0') << std::setw(2) << (int)i << " ";
+void hexdump(const std::vector<uint8_t>& data, const std::string& prefix)
+{
+    std::cout << prefix;
+    for (auto& i : data)
+    {
+        std::cout << "0x" << std::hex << std::setfill('0') << std::setw(2)
+                  << (int)i << " ";
     }
     std::cout << std::dec << std::endl;
 }
 
 boost::system::error_code
-EspiChannel::frame_header(const EspiCycle &cycle_type, std::vector<uint8_t> &packet,
-                          std::size_t espiPayloadLen) noexcept {
-    if(packet.empty()){
+    EspiChannel::frame_header(const EspiCycle& cycle_type,
+                              std::vector<uint8_t>& packet,
+                              std::size_t espiPayloadLen) noexcept
+{
+    if (packet.empty())
+    {
         packet.push_back((uint8_t)EspiCycle::outOfBound);
-        packet.push_back(((0xF0 & this->get_tag()) |
-                           ESPI_LEN_HIGH(espiPayloadLen)));
+        packet.push_back(
+            ((0xF0 & this->get_tag()) | ESPI_LEN_HIGH(espiPayloadLen)));
         packet.push_back(ESPI_LEN_LOW(espiPayloadLen));
-    } else {
-        if(packet.size() < espiHeaderLen){
+    }
+    else
+    {
+        if (packet.size() < espiHeaderLen)
+        {
             return boost::asio::error::no_buffer_space;
         }
         packet[0] = (uint8_t)cycle_type;
@@ -51,15 +61,18 @@ EspiChannel::frame_header(const EspiCycle &cycle_type, std::vector<uint8_t> &pac
 }
 
 int EspiChannel::do_ioctl(unsigned long command_code,
-                          struct aspeed_espi_ioc *ioctl_data) noexcept {
+                          struct aspeed_espi_ioc* ioctl_data) noexcept
+{
     int rc = ioctl(this->fd, command_code, ioctl_data);
-    if(rc){
+    if (rc)
+    {
         rc = errno;
         std::cerr << "ioctl error, error code " << rc << std::endl;
         return rc;
-    } else {
+    }
+    else
+    {
         return 0;
     }
 }
-} //namespace espi
-
+} // namespace espi

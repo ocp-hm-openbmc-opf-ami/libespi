@@ -15,13 +15,14 @@
 */
 #pragma once
 
+#include "espi_channel.hpp"
+
 #include <boost/asio.hpp>
 #include <memory>
 #include <vector>
 
-#include "espi_channel.hpp"
-
-namespace espi {
+namespace espi
+{
 
 const std::string oobDeviceFile = "/dev/aspeed-espi-oob";
 
@@ -38,50 +39,60 @@ typedef std::shared_ptr<EspioobChannel> EspioobChannel_h;
  * |<---3 Bytes---->|<------3 Bytes---->|
  * Ref Section 5.2.3 of eSPI Interafce base Specification.
  */
-class EspioobChannel : public EspiChannel {
-public:
-    EspioobChannel(boost::asio::io_context &ioc, const std::string deviceFile = oobDeviceFile):
-        EspiChannel(ioc, deviceFile), timer(ioc){ }
-    ~EspioobChannel(){ }
+class EspioobChannel : public EspiChannel
+{
+  public:
+    EspioobChannel(boost::asio::io_context& ioc,
+                   const std::string deviceFile = oobDeviceFile) :
+        EspiChannel(ioc, deviceFile),
+        timer(ioc)
+    {
+    }
+    ~EspioobChannel()
+    {
+    }
 
-    static EspioobChannel_h getHandle(boost::asio::io_context &ioc){
+    static EspioobChannel_h getHandle(boost::asio::io_context& ioc)
+    {
         static EspioobChannel_h singleton;
-        if(!singleton) {
+        if (!singleton)
+        {
             singleton = std::make_shared<EspioobChannel>(ioc);
         }
         return singleton;
     }
 
-    void asyncSend(uint8_t smbus_id, uint8_t command_code, const std::vector<uint8_t> &txPayload,
-                   SimpleECCallback cb);
+    void asyncSend(uint8_t smbus_id, uint8_t command_code,
+                   const std::vector<uint8_t>& txPayload, SimpleECCallback cb);
 
-    void asyncReceive(std::vector<uint8_t> &rxPayload, SimpleECCallback cb);
+    void asyncReceive(std::vector<uint8_t>& rxPayload, SimpleECCallback cb);
 
     void asyncTransact(uint8_t smbus_id, uint8_t command_code,
                        const std::vector<uint8_t> txPayload,
-                       std::vector<uint8_t> &rxPayload, SimpleECCallback cb);
+                       std::vector<uint8_t>& rxPayload, SimpleECCallback cb);
 
+  private:
+    void doSend(std::vector<uint8_t>& txPacket, SimpleECCallback cb);
 
-private:
-    void doSend(std::vector<uint8_t> &txPacket, SimpleECCallback cb);
+    void doReceive(std::vector<uint8_t>& rxPacket, SimpleECCallback cb,
+                   uint8_t retryNum = 0);
 
-    void doReceive(std::vector<uint8_t> &rxPacket, SimpleECCallback cb, uint8_t retryNum = 0);
-
-    virtual uint8_t get_tag(){
-        //Ordering can allow simontaneous transaction. Refer Section 5.1 of
-        //eSPI specification for more details.
-        //TODO: If ordering is needed add this in future.
+    virtual uint8_t get_tag()
+    {
+        // Ordering can allow simontaneous transaction. Refer Section 5.1 of
+        // eSPI specification for more details.
+        // TODO: If ordering is needed add this in future.
         return 0x00;
     }
 
     boost::asio::steady_timer timer;
     static constexpr uint8_t max_retry = 3;
-    static constexpr boost::asio::chrono::duration<int, std::milli> retryDuration =
-            boost::asio::chrono::milliseconds(500);
+    static constexpr boost::asio::chrono::duration<int, std::milli>
+        retryDuration = boost::asio::chrono::milliseconds(500);
 
     static constexpr std::size_t OOBHeaderLen = 0x03;
     static constexpr std::size_t OOBHeaderLenIndex = 0x02;
     static constexpr std::size_t OOBSmallestPacketLen = 0x06;
     static constexpr std::size_t OOBMaxPayloadLen = 0xFF;
 };
-} //namespace espi
+} // namespace espi
