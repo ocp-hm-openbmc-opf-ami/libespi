@@ -47,7 +47,7 @@ void EspioobChannel::asyncSend(uint8_t smbus_id, uint8_t command_code,
 
     std::for_each(txPayload.cbegin(), txPayload.cend(),
                   [&](uint8_t i) { txPacket.push_back(i); });
-    this->doSend(txPacket, cb);
+    this->doSend(std::move(txPacket), cb);
 }
 
 void EspioobChannel::asyncReceive(std::vector<uint8_t>& rxPayload,
@@ -57,7 +57,7 @@ void EspioobChannel::asyncReceive(std::vector<uint8_t>& rxPayload,
     this->doReceive(rxPayload, cb);
 }
 void EspioobChannel::asyncTransact(uint8_t smbus_id, uint8_t command_code,
-                                   const std::vector<uint8_t> txPayload,
+                                   const std::vector<uint8_t>& txPayload,
                                    std::vector<uint8_t>& rxPayload,
                                    SimpleECCallback cb)
 {
@@ -65,8 +65,6 @@ void EspioobChannel::asyncTransact(uint8_t smbus_id, uint8_t command_code,
                     [&, cb](const boost::system::error_code& ec) {
                         if (ec)
                         {
-                            std::cout << "async_send returnd error"
-                                      << std::endl;
                             cb(ec);
                         }
                         else
@@ -75,7 +73,8 @@ void EspioobChannel::asyncTransact(uint8_t smbus_id, uint8_t command_code,
                         }
                     });
 }
-void EspioobChannel::doSend(std::vector<uint8_t>& txPacket, SimpleECCallback cb)
+void EspioobChannel::doSend(const std::vector<uint8_t>& txPacket,
+                            SimpleECCallback cb)
 {
     struct aspeed_espi_ioc espiIoc;
     struct espi_oob_msg* oobPkt = (struct espi_oob_msg*)(txPacket.data());
@@ -145,7 +144,7 @@ void EspioobChannel::doReceive(std::vector<uint8_t>& rxPacket,
             // oobPkt and espiIoc.pkt will be invalid post rotate
             oobPkt = nullptr;
             espiIoc.pkt = nullptr;
-            // Convert espi packet in espi oob payload
+            // Trim espi and espi oob headers to make it espi oob payload
             std::rotate(rxPacket.begin(),
                         rxPacket.begin() + espiHeaderLen + OOBHeaderLen,
                         rxPacket.end());

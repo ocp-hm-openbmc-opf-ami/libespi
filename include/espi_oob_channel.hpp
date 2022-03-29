@@ -42,23 +42,9 @@ typedef std::shared_ptr<EspioobChannel> EspioobChannel_h;
 class EspioobChannel : public EspiChannel
 {
   public:
-    EspioobChannel(boost::asio::io_context& ioc,
-                   const std::string deviceFile = oobDeviceFile) :
-        EspiChannel(ioc, deviceFile),
-        timer(ioc)
-    {
-    }
-    ~EspioobChannel()
-    {
-    }
-
     static EspioobChannel_h getHandle(boost::asio::io_context& ioc)
     {
-        static EspioobChannel_h singleton;
-        if (!singleton)
-        {
-            singleton = std::make_shared<EspioobChannel>(ioc);
-        }
+        static EspioobChannel_h singleton(new EspioobChannel(ioc));
         return singleton;
     }
 
@@ -68,20 +54,25 @@ class EspioobChannel : public EspiChannel
     void asyncReceive(std::vector<uint8_t>& rxPayload, SimpleECCallback cb);
 
     void asyncTransact(uint8_t smbus_id, uint8_t command_code,
-                       const std::vector<uint8_t> txPayload,
+                       const std::vector<uint8_t>& txPayload,
                        std::vector<uint8_t>& rxPayload, SimpleECCallback cb);
 
   private:
-    void doSend(std::vector<uint8_t>& txPacket, SimpleECCallback cb);
+    EspioobChannel(boost::asio::io_context& ioc) :
+        EspiChannel(ioc, oobDeviceFile), timer(ioc)
+    {
+    }
+
+    void doSend(const std::vector<uint8_t>& txPacket, SimpleECCallback cb);
 
     void doReceive(std::vector<uint8_t>& rxPacket, SimpleECCallback cb,
                    uint8_t retryNum = 0);
 
     virtual uint8_t get_tag()
     {
-        // Ordering can allow simontaneous transaction. Refer Section 5.1 of
-        // eSPI specification for more details.
-        // TODO: If ordering is needed add this in future.
+        // Ordering can allow simontaneous transaction. Refer Section 5.1.2
+        // and 5.4 of eSPI specification for more details.
+        // TODO: Add this along with some sort queuing to implement ordering.
         return 0x00;
     }
 

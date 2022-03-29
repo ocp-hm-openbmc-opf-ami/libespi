@@ -35,6 +35,18 @@ void hexdump(const std::vector<uint8_t>& data, const std::string& prefix)
     std::cout << std::dec << std::endl;
 }
 
+EspiChannel::EspiChannel(boost::asio::io_context& ioc_,
+                         const std::string& deviceFile) :
+    ioc(ioc_),
+    fd(open(deviceFile.c_str(), O_NONBLOCK))
+{
+    if (fd < 0)
+    {
+        throw boost::system::error_code(errno,
+                                        boost::system::system_category());
+    }
+}
+
 boost::system::error_code
     EspiChannel::frame_header(const EspiCycle& cycle_type,
                               std::vector<uint8_t>& packet,

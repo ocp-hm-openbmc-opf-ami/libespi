@@ -16,8 +16,6 @@
 
 #pragma once
 
-#include <errno.h>
-
 #include <boost/asio.hpp>
 #include <vector>
 
@@ -36,6 +34,7 @@ constexpr bool DEBUG = true;
 void hexdump(const std::vector<uint8_t>& data, const std::string& prefix = "");
 
 typedef std::function<void(const boost::system::error_code&)> SimpleECCallback;
+
 /*
  * EspiChannel abstracts common functionality across all eSPI channel.
  * +----------------+-------------------+
@@ -49,15 +48,7 @@ typedef std::function<void(const boost::system::error_code&)> SimpleECCallback;
 class EspiChannel
 {
   protected:
-    EspiChannel(boost::asio::io_context& ioc_, const std::string& deviceFile) :
-        ioc(ioc_), fd(open(deviceFile.c_str(), O_NONBLOCK))
-    {
-        if (fd < 0)
-        {
-            throw boost::system::error_code(errno,
-                                            boost::system::system_category());
-        }
-    }
+    EspiChannel(boost::asio::io_context& ioc_, const std::string& deviceFile);
 
     virtual ~EspiChannel()
     {
