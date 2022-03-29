@@ -48,7 +48,7 @@ EspiChannel::EspiChannel(boost::asio::io_context& ioc,
 }
 
 boost::system::error_code
-    EspiChannel::frame_header(const EspiCycle& cycle_type,
+    EspiChannel::frameHeader(const EspiCycle& cycle_type,
                               std::vector<uint8_t>& packet,
                               std::size_t espiPayloadLen) noexcept
 {
@@ -72,7 +72,7 @@ boost::system::error_code
     return boost::system::error_code();
 }
 
-int EspiChannel::do_ioctl(unsigned long command_code,
+int EspiChannel::doIoctl(unsigned long command_code,
                           struct aspeed_espi_ioc* ioctlData) noexcept
 {
     int rc = ioctl(this->fd, command_code, ioctlData);

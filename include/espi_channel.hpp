@@ -57,15 +57,15 @@ class EspiChannel
 
     /* Frames the first three bytes of espi packet.
      */
-    boost::system::error_code frame_header(const EspiCycle& cycle_type,
+    boost::system::error_code frameHeader(const EspiCycle& cycle_type,
                                            std::vector<uint8_t>& packet,
                                            std::size_t espiPayloadLen) noexcept;
 
     virtual uint8_t getTag() = 0;
 
-    /* do_ioctl: performs ioctl. Returns 0 on success errror code on failure
+    /* doIoctl: performs ioctl. Returns 0 on success errror code on failure
      */
-    int do_ioctl(unsigned long command_code,
+    int doIoctl(unsigned long command_code,
                  struct aspeed_espi_ioc* ioctlData) noexcept;
 
     boost::asio::io_context& ioc;

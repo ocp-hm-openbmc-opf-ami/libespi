@@ -35,7 +35,7 @@ void EspioobChannel::asyncSend(uint8_t smbusId, uint8_t commandCode,
                           [=]() { cb(boost::asio::error::message_size); });
         return;
     }
-    if ((ec = this->frame_header(EspiCycle::outOfBound, txPacket,
+    if ((ec = this->frameHeader(EspiCycle::outOfBound, txPacket,
                                  OOBHeaderLen + txPayload.size())))
     {
         boost::asio::post(this->ioc, [=]() { cb(ec); });
@@ -90,7 +90,7 @@ void EspioobChannel::doSend(const std::vector<uint8_t>& txPacket,
                   << std::dec << std::endl;
         hexdump(txPacket);
     }
-    int rc = this->do_ioctl(ASPEED_ESPI_OOB_PUT_TX, &espiIoc);
+    int rc = this->doIoctl(ASPEED_ESPI_OOB_PUT_TX, &espiIoc);
     if (rc == 0)
     {
         boost::asio::post(this->ioc,
@@ -110,7 +110,7 @@ void EspioobChannel::doReceive(std::vector<uint8_t>& rxPacket,
     struct aspeed_espi_ioc espiIoc;
     espiIoc.pkt = (uint8_t*)rxPacket.data();
     espiIoc.pkt_len = rxPacket.size();
-    int rc = this->do_ioctl(ASPEED_ESPI_OOB_GET_RX, &espiIoc);
+    int rc = this->doIoctl(ASPEED_ESPI_OOB_GET_RX, &espiIoc);
     switch (rc)
     {
         case 0: {
