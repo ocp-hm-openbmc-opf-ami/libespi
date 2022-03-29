@@ -47,7 +47,7 @@ void EspioobChannel::asyncSend(uint8_t smbusId, uint8_t commandCode,
 
     std::for_each(txPayload.cbegin(), txPayload.cend(),
                   [&](uint8_t i) { txPacket.push_back(i); });
-    this->doSend(std::move(txPacket), cb);
+    this->doSend(txPacket, cb);
 }
 
 void EspioobChannel::asyncReceive(std::vector<uint8_t>& rxPayload,

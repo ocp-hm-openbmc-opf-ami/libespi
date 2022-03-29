@@ -21,6 +21,8 @@
 #include <iostream>
 #include <string>
 
+#define TAG(tag) (0xF0 & ((tag) << 0x04))
+
 namespace espi
 {
 
@@ -56,7 +58,7 @@ boost::system::error_code
     {
         packet.push_back((uint8_t)EspiCycle::outOfBound);
         packet.push_back(
-            ((0xF0 & this->getTag()) | ESPI_LEN_HIGH(espiPayloadLen)));
+            (TAG(this->getTag()) | ESPI_LEN_HIGH(espiPayloadLen)));
         packet.push_back(ESPI_LEN_LOW(espiPayloadLen));
     }
     else
@@ -66,7 +68,7 @@ boost::system::error_code
             return boost::asio::error::no_buffer_space;
         }
         packet[0] = (uint8_t)cycle_type;
-        packet[1] = ((0xF0 & this->getTag()) | ESPI_LEN_HIGH(espiPayloadLen));
+        packet[1] = (TAG(this->getTag()) | ESPI_LEN_HIGH(espiPayloadLen));
         packet[2] = ESPI_LEN_LOW(espiPayloadLen);
     }
     return boost::system::error_code();
