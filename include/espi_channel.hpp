@@ -33,6 +33,15 @@ constexpr bool DEBUG = true;
 void hexdump(const std::vector<uint8_t> &data, const std::string &prefix = "");
 
 typedef std::function<void(const boost::system::error_code&)> SimpleECCallback;
+/*
+ * EspiChannel abstracts common functionality across all eSPI channel.
+ * +----------------+-------------------+
+ * | eSPI header    |   eSPI payaload   |
+ * +----------------+-------------------+
+ * |<------------eSPI packet----------->|
+ * |<---3 Bytes---->|
+ * Ref Section 5.1 of eSPI Interafce base Specification
+ */
 
 class EspiChannel {
 protected:

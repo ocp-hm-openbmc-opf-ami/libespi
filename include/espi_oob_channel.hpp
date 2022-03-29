@@ -28,6 +28,16 @@ const std::string oobDeviceFile = "/dev/aspeed-espi-oob";
 class EspioobChannel;
 typedef std::shared_ptr<EspioobChannel> EspioobChannel_h;
 
+/*
+ * EspioobChannel facilitates eSPI Out of Bound channel transactions.
+ * +----------------+-------------------+-------------------+
+ * | eSPI header    |   eSPI OOB header |   eSPI OOB payload|
+ * +----------------+-------------------+-------------------+
+ * |<------------eSPI packet------------------------------->|
+ *                  |<----------eSPI OOB packet------------>|
+ * |<---3 Bytes---->|<------3 Bytes---->|
+ * Ref Section 5.2.3 of eSPI Interafce base Specification.
+ */
 class EspioobChannel : public EspiChannel {
 public:
     EspioobChannel(boost::asio::io_context &ioc, const std::string deviceFile = oobDeviceFile):
