@@ -23,7 +23,7 @@
 namespace espi
 {
 
-void EspioobChannel::asyncSend(uint8_t smbus_id, uint8_t command_code,
+void EspioobChannel::asyncSend(uint8_t smbusId, uint8_t commandCode,
                                const std::vector<uint8_t>& txPayload,
                                SimpleECCallback cb)
 {
@@ -41,8 +41,8 @@ void EspioobChannel::asyncSend(uint8_t smbus_id, uint8_t command_code,
         boost::asio::post(this->ioc, [=]() { cb(ec); });
         return;
     }
-    txPacket.push_back(smbus_id << 1);
-    txPacket.push_back(command_code);
+    txPacket.push_back(smbusId << 1);
+    txPacket.push_back(commandCode);
     txPacket.push_back(static_cast<uint8_t>(txPayload.size()));
 
     std::for_each(txPayload.cbegin(), txPayload.cend(),
@@ -56,12 +56,12 @@ void EspioobChannel::asyncReceive(std::vector<uint8_t>& rxPayload,
     rxPayload.resize(rxPayload.size() + espiHeaderLen + OOBHeaderLen);
     this->doReceive(rxPayload, cb);
 }
-void EspioobChannel::asyncTransact(uint8_t smbus_id, uint8_t command_code,
+void EspioobChannel::asyncTransact(uint8_t smbusId, uint8_t commandCode,
                                    const std::vector<uint8_t>& txPayload,
                                    std::vector<uint8_t>& rxPayload,
                                    SimpleECCallback cb)
 {
-    this->asyncSend(smbus_id, command_code, txPayload,
+    this->asyncSend(smbusId, commandCode, txPayload,
                     [&, cb](const boost::system::error_code& ec) {
                         if (ec)
                         {
@@ -139,7 +139,7 @@ void EspioobChannel::doReceive(std::vector<uint8_t>& rxPacket,
                 hexdump(rxPacket);
             }
             assert(rxPacket.size() >= OOBSmallestPacketLen);
-            // This assert is only valid till get_tag is in primitive state
+            // This assert is only valid till getTag is in primitive state
             assert(oobPkt->tag == 0x00);
             // oobPkt and espiIoc.pkt will be invalid post rotate
             oobPkt = nullptr;
@@ -169,7 +169,7 @@ void EspioobChannel::doReceive(std::vector<uint8_t>& rxPacket,
             ++retryNum;
             std::cout << "Retrying... Fail Count :" << (int)(retryNum)
                       << std::endl;
-            if (retryNum >= max_retry)
+            if (retryNum >= maxRetry)
             {
                 boost::asio::post(this->ioc, [rc, cb]() {
                     cb(boost::system::error_code(

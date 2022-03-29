@@ -48,12 +48,12 @@ class EspioobChannel : public EspiChannel
         return singleton;
     }
 
-    void asyncSend(uint8_t smbus_id, uint8_t command_code,
+    void asyncSend(uint8_t smbusId, uint8_t commandCode,
                    const std::vector<uint8_t>& txPayload, SimpleECCallback cb);
 
     void asyncReceive(std::vector<uint8_t>& rxPayload, SimpleECCallback cb);
 
-    void asyncTransact(uint8_t smbus_id, uint8_t command_code,
+    void asyncTransact(uint8_t smbusId, uint8_t commandCode,
                        const std::vector<uint8_t>& txPayload,
                        std::vector<uint8_t>& rxPayload, SimpleECCallback cb);
 
@@ -68,7 +68,7 @@ class EspioobChannel : public EspiChannel
     void doReceive(std::vector<uint8_t>& rxPacket, SimpleECCallback cb,
                    uint8_t retryNum = 0);
 
-    virtual uint8_t get_tag()
+    virtual uint8_t getTag()
     {
         // Ordering can allow simontaneous transaction. Refer Section 5.1.2
         // and 5.4 of eSPI specification for more details.
@@ -77,7 +77,7 @@ class EspioobChannel : public EspiChannel
     }
 
     boost::asio::steady_timer timer;
-    static constexpr uint8_t max_retry = 3;
+    static constexpr uint8_t maxRetry = 3;
     static constexpr boost::asio::chrono::duration<int, std::milli>
         retryDuration = boost::asio::chrono::milliseconds(500);
 

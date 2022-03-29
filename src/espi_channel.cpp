@@ -35,9 +35,9 @@ void hexdump(const std::vector<uint8_t>& data, const std::string& prefix)
     std::cout << std::dec << std::endl;
 }
 
-EspiChannel::EspiChannel(boost::asio::io_context& ioc_,
+EspiChannel::EspiChannel(boost::asio::io_context& ioc,
                          const std::string& deviceFile) :
-    ioc(ioc_),
+    ioc(ioc),
     fd(open(deviceFile.c_str(), O_NONBLOCK))
 {
     if (fd < 0)
@@ -56,7 +56,7 @@ boost::system::error_code
     {
         packet.push_back((uint8_t)EspiCycle::outOfBound);
         packet.push_back(
-            ((0xF0 & this->get_tag()) | ESPI_LEN_HIGH(espiPayloadLen)));
+            ((0xF0 & this->getTag()) | ESPI_LEN_HIGH(espiPayloadLen)));
         packet.push_back(ESPI_LEN_LOW(espiPayloadLen));
     }
     else
@@ -66,16 +66,16 @@ boost::system::error_code
             return boost::asio::error::no_buffer_space;
         }
         packet[0] = (uint8_t)cycle_type;
-        packet[1] = ((0xF0 & this->get_tag()) | ESPI_LEN_HIGH(espiPayloadLen));
+        packet[1] = ((0xF0 & this->getTag()) | ESPI_LEN_HIGH(espiPayloadLen));
         packet[2] = ESPI_LEN_LOW(espiPayloadLen);
     }
     return boost::system::error_code();
 }
 
 int EspiChannel::do_ioctl(unsigned long command_code,
-                          struct aspeed_espi_ioc* ioctl_data) noexcept
+                          struct aspeed_espi_ioc* ioctlData) noexcept
 {
-    int rc = ioctl(this->fd, command_code, ioctl_data);
+    int rc = ioctl(this->fd, command_code, ioctlData);
     if (rc)
     {
         rc = errno;

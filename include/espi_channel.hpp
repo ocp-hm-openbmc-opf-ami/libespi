@@ -48,7 +48,7 @@ typedef std::function<void(const boost::system::error_code&)> SimpleECCallback;
 class EspiChannel
 {
   protected:
-    EspiChannel(boost::asio::io_context& ioc_, const std::string& deviceFile);
+    EspiChannel(boost::asio::io_context& ioc, const std::string& deviceFile);
 
     virtual ~EspiChannel()
     {
@@ -61,12 +61,12 @@ class EspiChannel
                                            std::vector<uint8_t>& packet,
                                            std::size_t espiPayloadLen) noexcept;
 
-    virtual uint8_t get_tag() = 0;
+    virtual uint8_t getTag() = 0;
 
     /* do_ioctl: performs ioctl. Returns 0 on success errror code on failure
      */
     int do_ioctl(unsigned long command_code,
-                 struct aspeed_espi_ioc* ioctl_data) noexcept;
+                 struct aspeed_espi_ioc* ioctlData) noexcept;
 
     boost::asio::io_context& ioc;
     int fd;
