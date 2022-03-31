@@ -29,7 +29,7 @@ enum class EspiCycle : uint8_t
     outOfBound = 0x21
 };
 
-constexpr bool DEBUG = true;
+constexpr bool DEBUG = false;
 
 void hexdump(const std::vector<uint8_t>& data, const std::string& prefix = "");
 
