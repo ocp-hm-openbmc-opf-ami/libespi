@@ -50,7 +50,9 @@ class EspioobChannel : public EspiChannel
 
     void asyncTransact(uint8_t smbusId, uint8_t commandCode,
                        const std::vector<uint8_t>& txPayload,
-                       std::vector<uint8_t>& rxPayload, SimpleECCallback cb);
+                       std::vector<uint8_t>& rxPayload, SimpleECCallback cb,
+                       const std::chrono::duration<int, std::milli>&
+                           transactWaitDuration = defaultTransactWaitDuration);
 
   private:
     EspioobChannel(boost::asio::io_context& ioc) :
@@ -77,11 +79,11 @@ class EspioobChannel : public EspiChannel
     }
 
     static constexpr int maxRetry = 3;
-    static constexpr boost::asio::chrono::duration<int, std::milli>
-        retryWaitDuration = boost::asio::chrono::milliseconds(500);
+    static constexpr std::chrono::duration<int, std::milli>
+        defaultRetryWaitDuration = std::chrono::milliseconds(500);
 
-    static constexpr boost::asio::chrono::duration<int, std::milli>
-        transactWaitDuration = boost::asio::chrono::milliseconds(100);
+    static constexpr std::chrono::duration<int, std::milli>
+        defaultTransactWaitDuration = std::chrono::milliseconds(100);
 
     static constexpr std::size_t OOBHeaderLen = 0x03;
     static constexpr std::size_t OOBHeaderLenIndex = 0x02;

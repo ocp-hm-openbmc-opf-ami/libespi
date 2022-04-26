@@ -55,10 +55,10 @@ void EspioobChannel::asyncReceive(std::vector<uint8_t>& rxPayload,
     rxPayload.resize(rxPayload.size() + espiHeaderLen + OOBHeaderLen);
     doReceive(rxPayload, cb);
 }
-void EspioobChannel::asyncTransact(uint8_t smbusId, uint8_t commandCode,
-                                   const std::vector<uint8_t>& txPayload,
-                                   std::vector<uint8_t>& rxPayload,
-                                   SimpleECCallback cb)
+void EspioobChannel::asyncTransact(
+    uint8_t smbusId, uint8_t commandCode, const std::vector<uint8_t>& txPayload,
+    std::vector<uint8_t>& rxPayload, SimpleECCallback cb,
+    const std::chrono::duration<int, std::milli>& transactWaitDuration)
 {
     asyncSend(smbusId, commandCode, txPayload,
               [&, cb](const boost::system::error_code& ec) {
@@ -67,10 +67,12 @@ void EspioobChannel::asyncTransact(uint8_t smbusId, uint8_t commandCode,
                       cb(ec);
                       return;
                   }
-                  boost::asio::steady_timer transactWaiter(
-                      ioc, transactWaitDuration);
-                  transactWaiter.async_wait(
-                      [&, cb](const boost::system::error_code&) {
+                  auto transactWaiter =
+                      std::make_unique<boost::asio::steady_timer>(
+                          ioc, transactWaitDuration);
+                  transactWaiter->async_wait(
+                      [&, transactWaiter = std::move(transactWaiter),
+                       cb](const boost::system::error_code&) {
                           asyncReceive(rxPayload, cb);
                       });
               });
@@ -144,7 +146,8 @@ void EspioobChannel::doReceive(std::vector<uint8_t>& rxPacket,
             // oobPkt and espiIoc.pkt will be invalid post trimming
             oobPkt = nullptr;
             espiIoc.pkt = nullptr;
-            rxPacket.erase(rxPacket.begin() ,rxPacket.begin() + espiHeaderLen + OOBHeaderLen);
+            rxPacket.erase(rxPacket.begin(),
+                           rxPacket.begin() + espiHeaderLen + OOBHeaderLen);
             boost::asio::post(ioc, [=]() { cb(boost::system::error_code()); });
         }
         break;
@@ -174,11 +177,13 @@ void EspioobChannel::doReceive(std::vector<uint8_t>& rxPacket,
                 });
                 return;
             }
-            boost::asio::steady_timer retryWaiter(ioc, retryWaitDuration);
-            retryWaiter.async_wait(
-                [&, retryNum, cb](const boost::system::error_code&) {
-                    doReceive(rxPacket, cb, retryNum);
-                });
+            auto retryWaiter = std::make_unique<boost::asio::steady_timer>(
+                ioc, defaultRetryWaitDuration);
+            retryWaiter->async_wait([&, retryWaiter = std::move(retryWaiter),
+                                     retryNum,
+                                     cb](const boost::system::error_code&) {
+                doReceive(rxPacket, cb, retryNum);
+            });
         }
         break;
         default:

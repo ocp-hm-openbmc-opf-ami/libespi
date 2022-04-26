@@ -182,8 +182,6 @@ void espioobChannel(boost::asio::io_context& io, int argc, char** argv)
     }
     else
     {
-        // std::cout << std::hex <<  smbusSlaveId << " " << smbusCode << "\n" <<
-        // std::dec;
         RawTransaction::execute(io, static_cast<uint8_t>(smbusSlaveId),
                                 static_cast<uint8_t>(smbusCode), txPayload);
     }
