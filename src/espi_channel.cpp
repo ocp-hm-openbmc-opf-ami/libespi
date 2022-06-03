@@ -18,6 +18,7 @@
 
 #include <cassert>
 #include <espi_channel.hpp>
+#include <espi_channel_internal.hpp>
 #include <iomanip>
 #include <iostream>
 #include <string>
@@ -50,23 +51,21 @@ EspiChannel::EspiChannel(boost::asio::io_context& ioc,
     }
 }
 
-boost::system::error_code
-    EspiChannel::frameHeader(const EspiCycle& cycleType,
-                             std::vector<uint8_t>& packet,
-                             const std::size_t espiPayloadLen) noexcept
+boost::system::error_code frameHeader(const EspiCycle& cycleType, uint8_t tag,
+                                      std::vector<uint8_t>& packet,
+                                      const std::size_t espiPayloadLen) noexcept
 {
     if (!packet.empty())
     {
         return boost::asio::error::message_size;
     }
     packet.push_back(static_cast<uint8_t>(cycleType));
-    packet.push_back((TAG(getTag()) | ESPI_LEN_HIGH(espiPayloadLen)));
+    packet.push_back((TAG(tag) | ESPI_LEN_HIGH(espiPayloadLen)));
     packet.push_back(ESPI_LEN_LOW(espiPayloadLen));
     return boost::system::error_code();
 }
 
-int EspiChannel::doIoctl(unsigned long commandCode,
-                         struct aspeed_espi_ioc* ioctlData) noexcept
+int EspiChannel::doIoctl(unsigned long commandCode, void* ioctlData) noexcept
 {
     if (!ioctlData)
     {

@@ -15,6 +15,8 @@
 */
 #include "espi_oob_channel.hpp"
 
+#include "espi_channel_internal.hpp"
+
 #include <boost/asio.hpp>
 #include <cassert>
 #include <iomanip>
@@ -34,7 +36,7 @@ void EspioobChannel::asyncSend(uint8_t smbusId, uint8_t commandCode,
     }
     boost::system::error_code ec;
     std::vector<uint8_t> txPacket;
-    if ((ec = frameHeader(EspiCycle::outOfBound, txPacket,
+    if ((ec = frameHeader(EspiCycle::outOfBound, getTag(), txPacket,
                           OOBHeaderLen + txPayload.size())))
     {
         boost::asio::post(ioc, [=]() { cb(ec); });
@@ -55,28 +57,29 @@ void EspioobChannel::asyncReceive(std::vector<uint8_t>& rxPayload,
     rxPayload.resize(rxPayload.size() + espiHeaderLen + OOBHeaderLen);
     doReceive(rxPayload, cb);
 }
+
 void EspioobChannel::asyncTransact(
     uint8_t smbusId, uint8_t commandCode, const std::vector<uint8_t>& txPayload,
     std::vector<uint8_t>& rxPayload, SimpleECCallback cb,
     const std::chrono::duration<int, std::milli>& transactWaitDuration)
 {
-    asyncSend(smbusId, commandCode, txPayload,
-              [&, cb](const boost::system::error_code& ec) {
-                  if (ec)
-                  {
-                      cb(ec);
-                      return;
-                  }
-                  auto transactWaiter =
-                      std::make_unique<boost::asio::steady_timer>(
-                          ioc, transactWaitDuration);
-                  transactWaiter->async_wait(
-                      [&, transactWaiter = std::move(transactWaiter),
-                       cb](const boost::system::error_code&) {
-                          asyncReceive(rxPayload, cb);
-                      });
-              });
+    asyncSend(
+        smbusId, commandCode, txPayload,
+        [&, cb](const boost::system::error_code& ec) {
+            if (ec)
+            {
+                cb(ec);
+                return;
+            }
+            auto transactWaiter = std::make_unique<boost::asio::steady_timer>(
+                ioc, transactWaitDuration);
+            transactWaiter->async_wait([&, transactWaiter = std::move(transactWaiter), cb](
+                                           const boost::system::error_code&) {
+                asyncReceive(rxPayload, cb);
+            });
+        });
 }
+
 void EspioobChannel::doSend(std::vector<uint8_t>& txPacket, SimpleECCallback cb)
 {
     struct aspeed_espi_ioc espiIoc;

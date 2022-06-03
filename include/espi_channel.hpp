@@ -16,19 +16,11 @@
 
 #pragma once
 
-#include "linux/aspeed-espi-ioc.h"
-
 #include <boost/asio.hpp>
 #include <vector>
 
-
 namespace espi
 {
-
-enum class EspiCycle : uint8_t
-{
-    outOfBound = ESPI_OOB_MSG
-};
 
 constexpr bool DEBUG = false;
 
@@ -61,18 +53,11 @@ class EspiChannel
     EspiChannel& operator=(EspiChannel&) = delete;
     EspiChannel& operator=(EspiChannel&&) = delete;
 
-    /* Frames the first three bytes of espi packet.
-     */
-    boost::system::error_code
-        frameHeader(const EspiCycle& cycleType, std::vector<uint8_t>& packet,
-                    const std::size_t espiPayloadLen) noexcept;
-
     virtual uint8_t getTag() = 0;
 
     /* doIoctl: performs ioctl. Returns 0 on success errror code on failure
      */
-    int doIoctl(unsigned long commandCode,
-                struct aspeed_espi_ioc* ioctlData) noexcept;
+    int doIoctl(unsigned long commandCode, void* ioctlData) noexcept;
 
     boost::asio::io_context& ioc;
     int fd;
