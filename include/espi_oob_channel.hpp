@@ -54,16 +54,16 @@ class EspioobChannel : public EspiChannel
                        const std::chrono::duration<int, std::milli>&
                            transactWaitDuration = defaultTransactWaitDuration);
 
+    void asyncSend(uint8_t smbusId, uint8_t commandCode,
+                   const std::vector<uint8_t>& txPayload, SimpleECCallback cb);
+
+    void asyncReceive(std::vector<uint8_t>& rxPayload, SimpleECCallback cb);
+
   private:
     EspioobChannel(boost::asio::io_context& ioc) :
         EspiChannel(ioc, oobDeviceFile)
     {
     }
-
-    void asyncSend(uint8_t smbusId, uint8_t commandCode,
-                   const std::vector<uint8_t>& txPayload, SimpleECCallback cb);
-
-    void asyncReceive(std::vector<uint8_t>& rxPayload, SimpleECCallback cb);
 
     void doSend(std::vector<uint8_t>& txPacket, SimpleECCallback cb);
 
