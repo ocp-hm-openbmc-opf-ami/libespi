@@ -1,7 +1,7 @@
 project(
     'libespi',
     'cpp',
-    license: 'Apache-2.0',
+    license: 'proprietary',
     version: '1.0',
     meson_version: '>=0.57.0',
     default_options: [
